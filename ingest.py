@@ -20,6 +20,12 @@ DEFAULT_MODEL = "gemini-3.6-flash"
 
 VIDEO_MIME = "video/mp4"
 
+# Two ways in. gs:// is production: Vertex reads Cloud Storage directly and
+# the bytes never touch this process. The Files API is the local path, used
+# when there is no bucket - it uploads, so keep it for small clips.
+GCS_PREFIX = "gs://"
+FILES_API_PREFIX = "https://generativelanguage.googleapis.com/"
+
 PROMPT = """You are logging a clip of dailies so an editor can find it later.
 
 Split the clip into shots - a new shot begins at every cut or camera setup
@@ -98,13 +104,11 @@ def log_clip(
     client,
     model: str = DEFAULT_MODEL,
 ) -> list[dict]:
-    """Log one clip of dailies. `video_uri` must be a gs:// object.
-
-    Dailies are far too large to inline, and Vertex reads Cloud Storage
-    directly, so the bytes never pass through this process.
-    """
-    if not video_uri.startswith("gs://"):
-        raise ValueError(f"video_uri must be a gs:// object, got {video_uri!r}")
+    """Log one clip of dailies from a gs:// object or a Files API URI."""
+    if not video_uri.startswith((GCS_PREFIX, FILES_API_PREFIX)):
+        raise ValueError(
+            f"video_uri must be a gs:// object or a Files API URI, got {video_uri!r}"
+        )
 
     response = client.models.generate_content(
         model=model,

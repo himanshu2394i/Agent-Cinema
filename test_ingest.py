@@ -99,3 +99,16 @@ def test_sends_gcs_uri_and_generated_schema():
 def test_rejects_non_gcs_uri():
     with pytest.raises(ValueError, match="gs://"):
         log_clip("C:/footage/clip.mp4", VOCAB, FakeClient(_reply(SHOT)))
+
+
+FILES_URI = "https://generativelanguage.googleapis.com/v1beta/files/abc123"
+
+
+def test_accepts_a_files_api_uri():
+    # The Files API is the only upload path that works without a GCS bucket,
+    # which is what local development and the smoke test rely on.
+    client = FakeClient(_reply(SHOT))
+    rows = log_clip(FILES_URI, VOCAB, client)
+    assert rows[0]["source_file"] == FILES_URI
+    part = next(p for p in client.models.calls[0]["contents"] if "file_data" in p)
+    assert part["file_data"]["file_uri"] == FILES_URI
