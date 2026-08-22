@@ -17,7 +17,9 @@ import random
 import sys
 from typing import Iterator
 
-from vocab import CRAFT_VOCAB, ProjectVocabulary
+import dataclasses
+
+from vocab import CRAFT_VOCAB, VOCABULARY_CACHE, ProjectVocabulary, load_vocabulary
 
 TAKES_PER_VISIT = (1, 9)
 SHOT_SECONDS = (4.0, 95.0)
@@ -49,24 +51,24 @@ def _plan_scene(scene: str, vocabulary: ProjectVocabulary, rng: random.Random) -
 
 
 def demo_vocabulary() -> ProjectVocabulary:
-    """Stand-in vocabulary for the synthetic archive.
+    """The archive's vocabulary: one screenplay's words, many productions' scenes.
 
-    Scene ids are prefixed by production ("P07-14B") because two million
-    clips is a studio archive, not one shoot - a feature's dailies run to a
-    few thousand. Without that spread the table holds a hundred distinct
-    setups and every specific filter returns nothing.
+    Characters, locations and props come from the parsed screenplay so the
+    synthetic filler and the real logged clips speak the same language, and
+    the agent only has to be told one set of values.
+
+    Scene ids stay synthetic and production-prefixed ("P07-14B") because two
+    million clips is a studio archive, not one shoot - a feature's dailies
+    run to a few thousand. Without that spread the table holds a hundred
+    distinct setups and every specific filter returns nothing.
     """
-    return ProjectVocabulary.from_raw(
-        characters=["SARAH", "DET. RUIZ", "MARCUS", "THE LANDLADY"],
-        locations=["DINER", "PRECINCT", "SARAH'S CAR", "STAIRWELL"],
-        props=["the letter", "badge", "car keys"],
-        scenes=[
-            f"P{p:02d}-{n}{s}"
-            for p in range(1, 41)
-            for n in range(1, 40)
-            for s in ("", "A", "B")
-        ],
-    )
+    base = load_vocabulary(VOCABULARY_CACHE)
+    return dataclasses.replace(base, scenes=[
+        f"P{p:02d}-{n}{s}"
+        for p in range(1, 41)
+        for n in range(1, 40)
+        for s in ("", "A", "B")
+    ])
 
 
 def generate_rows(

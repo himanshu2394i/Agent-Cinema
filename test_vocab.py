@@ -1,3 +1,7 @@
+import json
+
+import pytest
+
 from vocab import ProjectVocabulary, CRAFT_VOCAB
 
 
@@ -57,3 +61,23 @@ def test_possessive_locations_are_not_mangled():
         characters=[], locations=["SARAH'S CAR", "MARCUS' APARTMENT"], props=[], scenes=[],
     )
     assert pv.locations == ["Sarah's Car", "Marcus' Apartment"]
+
+
+def test_load_vocabulary_reads_a_cached_parse(tmp_path):
+    from vocab import load_vocabulary
+
+    cache = tmp_path / "vocabulary.json"
+    cache.write_text(json.dumps({
+        "characters": ["Ben", "Barbara"], "locations": ["Farmhouse"],
+        "props": ["Tyre Iron"], "scenes": [],
+    }))
+    pv = load_vocabulary(cache)
+    assert pv.characters == ["Ben", "Barbara"]
+    assert pv.locations == ["Farmhouse"]
+
+
+def test_load_vocabulary_errors_clearly_when_missing(tmp_path):
+    from vocab import load_vocabulary
+
+    with pytest.raises(FileNotFoundError, match="smoke.py"):
+        load_vocabulary(tmp_path / "nope.json")

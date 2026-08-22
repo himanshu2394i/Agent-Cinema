@@ -77,3 +77,25 @@ def test_generated_rows_pass_the_real_ingest_validator():
     shots = [{k: v for k, v in r.items() if k != "source_file"} for r in rows(300)]
     validated = rows_from_response(json.dumps(shots), VOCAB, "gs://synthetic")
     assert len(validated) == 300
+
+
+def test_demo_vocabulary_uses_the_parsed_screenplay(tmp_path, monkeypatch):
+    import json
+    import synth
+    from vocab import ProjectVocabulary
+
+    cache = tmp_path / "vocabulary.json"
+    cache.write_text(json.dumps({
+        "characters": ["Ben", "Barbara"], "locations": ["Farmhouse", "Cellar"],
+        "props": ["Tyre Iron"], "scenes": [],
+    }))
+    monkeypatch.setattr(synth, "VOCABULARY_CACHE", cache)
+
+    pv = synth.demo_vocabulary()
+    assert isinstance(pv, ProjectVocabulary)
+    # Characters come from the screenplay, not from invented names.
+    assert pv.characters == ["Ben", "Barbara"]
+    assert "Sarah" not in pv.characters
+    # Scene ids stay synthetic: the archive spans many productions.
+    assert len(pv.scenes) > 100
+    assert pv.scenes[0].startswith("P01-")

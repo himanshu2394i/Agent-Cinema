@@ -12,8 +12,10 @@ and the agent's system prompt. One source of truth keeps the values the
 model writes identical to the values the agent filters on.
 """
 
+import json
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 CRAFT_VOCAB: dict[str, list[str]] = {
     "shot_size": [
@@ -100,3 +102,19 @@ class ProjectVocabulary:
 
     def character_enum(self) -> list[str]:
         return self.enum_of("characters")
+
+
+VOCABULARY_CACHE = Path("assets/vocabulary.json")
+
+
+def load_vocabulary(path: Path = VOCABULARY_CACHE) -> ProjectVocabulary:
+    """Load a vocabulary parsed earlier from a screenplay.
+
+    Values are already normalised, so this constructs directly rather than
+    going through from_raw.
+    """
+    if not Path(path).exists():
+        raise FileNotFoundError(
+            f"No vocabulary at {path}. Run smoke.py against a screenplay first."
+        )
+    return ProjectVocabulary(**json.loads(Path(path).read_text()))

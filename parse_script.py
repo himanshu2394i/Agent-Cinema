@@ -38,9 +38,11 @@ logging the footage shot from it.
 
 Extract exactly four lists:
 
-characters - every named character with a dialogue cue or a named appearance
-  in the action. Use the name as written in the cue. Ignore (V.O.), (O.S.)
-  and (CONT'D) decorations.
+characters - every named character who physically appears on screen. Use the
+  name as written in the cue, ignoring (V.O.), (O.S.) and (CONT'D)
+  decorations. Exclude labels that denote a disembodied source rather than a
+  person on camera - VOICE, ANNOUNCER, COMMENTATOR, NEWSCASTER, RADIO,
+  TELEVISION - unless the script shows them in frame.
 locations - the distinct places from the scene headings, without the
   INT./EXT. prefix and without the trailing time of day.
 props - physical objects the action lines treat as significant: objects that
