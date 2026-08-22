@@ -8,3 +8,4 @@ assets/
 *.mp4
 *.mov
 *.jsonl
+.superpowers/
