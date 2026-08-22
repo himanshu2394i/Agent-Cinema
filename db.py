@@ -38,9 +38,9 @@ DEMO_QUERIES = {
         FROM {TABLE}
         WHERE scene = 'P07-14B' AND has(quality_flags, 'none')
         ORDER BY take LIMIT 5""",
-    "every take Sarah handles the letter": f"""
+    "every take Ben handles the rifle": f"""
         SELECT count() FROM {TABLE}
-        WHERE has(characters, 'Sarah') AND has(props, 'The Letter')""",
+        WHERE has(characters, 'Ben') AND has(props, 'Rifle')""",
 }
 
 
