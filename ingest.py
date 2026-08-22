@@ -1,0 +1,120 @@
+"""One clip in, validated shot rows out.
+
+Gemini segments the clip and logs each shot in a single pass, constrained by
+the schema built from this production's vocabulary.
+
+The response is re-validated here even though the schema already constrains
+it. That is not redundancy: these rows go straight into LowCardinality
+columns, and one off-vocabulary value there is invisible at write time and
+poisons every query that filters on it afterwards. Cheap check, expensive bug.
+"""
+
+import json
+
+from shot_schema import MODEL_FIELDS, allowed_values, shot_response_schema
+from vocab import ProjectVocabulary
+
+# ponytail: flash until video captions prove it too weak; the pro tier is
+# a one-word change and only ingest quality would justify the cost.
+DEFAULT_MODEL = "gemini-3.6-flash"
+
+VIDEO_MIME = "video/mp4"
+
+PROMPT = """You are logging a clip of dailies so an editor can find it later.
+
+Split the clip into shots - a new shot begins at every cut or camera setup
+change - and log each one. Timestamps are seconds from the start of this clip.
+
+Judge shot size by how much of the body is framed: extreme_wide is a figure
+small in a landscape, wide is the full body with headroom, medium is waist up,
+medium_close is chest up, close_up is the face, extreme_close_up is a detail
+of the face, insert is an object with no person.
+
+Log only what is visible. If you cannot identify a character or location from
+the allowed values, use "unknown" rather than guessing the nearest one.
+
+Put anything the vocabulary cannot express into the action field in plain
+prose - it is the only place unanticipated detail survives."""
+
+
+def _check(field, value, allowed: list[str], where: str) -> None:
+    values = value if field.array else [value]
+    for item in values:
+        if item not in allowed:
+            raise ValueError(
+                f"{where}: field {field.name!r} got {item!r}, "
+                f"which is not in its vocabulary"
+            )
+
+
+def rows_from_response(
+    text: str, vocabulary: ProjectVocabulary, source_file: str
+) -> list[dict]:
+    """Parse and validate the model's shot list into ClickHouse-ready rows."""
+    try:
+        shots = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"shot log was not valid JSON: {text[:200]!r}") from exc
+
+    if not isinstance(shots, list):
+        raise ValueError(f"expected a list of shots, got {type(shots).__name__}")
+    if not shots:
+        raise ValueError(f"{source_file}: model returned no shots for this clip")
+
+    rows = []
+    for index, shot in enumerate(shots):
+        where = f"{source_file} shot {index}"
+        if not isinstance(shot, dict):
+            raise ValueError(f"{where}: expected an object")
+
+        row = {"source_file": source_file}
+        for field in MODEL_FIELDS:
+            if field.name not in shot:
+                raise ValueError(f"{where}: missing field {field.name!r}")
+            value = shot[field.name]
+
+            if field.array and not isinstance(value, list):
+                raise ValueError(f"{where}: field {field.name!r} should be a list")
+
+            allowed = allowed_values(field, vocabulary)
+            if allowed is not None:
+                _check(field, value, allowed, where)
+
+            row[field.name] = value
+
+        if not row["end_seconds"] > row["start_seconds"]:
+            raise ValueError(
+                f"{where}: timestamps do not advance "
+                f"({row['start_seconds']} -> {row['end_seconds']})"
+            )
+        rows.append(row)
+
+    return rows
+
+
+def log_clip(
+    video_uri: str,
+    vocabulary: ProjectVocabulary,
+    client,
+    model: str = DEFAULT_MODEL,
+) -> list[dict]:
+    """Log one clip of dailies. `video_uri` must be a gs:// object.
+
+    Dailies are far too large to inline, and Vertex reads Cloud Storage
+    directly, so the bytes never pass through this process.
+    """
+    if not video_uri.startswith("gs://"):
+        raise ValueError(f"video_uri must be a gs:// object, got {video_uri!r}")
+
+    response = client.models.generate_content(
+        model=model,
+        contents=[
+            {"file_data": {"file_uri": video_uri, "mime_type": VIDEO_MIME}},
+            {"text": PROMPT},
+        ],
+        config={
+            "response_mime_type": "application/json",
+            "response_schema": shot_response_schema(vocabulary),
+        },
+    )
+    return rows_from_response(response.text, vocabulary, video_uri)
