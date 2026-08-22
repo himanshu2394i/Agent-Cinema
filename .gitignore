@@ -2,6 +2,8 @@
 .env
 __pycache__/
 assets/
+.adk/
+**/.adk/
 *.pdf
 *.mp4
 *.mov
