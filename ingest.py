@@ -103,8 +103,15 @@ def log_clip(
     vocabulary: ProjectVocabulary,
     client,
     model: str = DEFAULT_MODEL,
+    source_file: str | None = None,
 ) -> list[dict]:
-    """Log one clip of dailies from a gs:// object or a Files API URI."""
+    """Log one clip of dailies from a gs:// object or a Files API URI.
+
+    `source_file` is the clip's lasting identity in the archive. It defaults
+    to the URI, which is right for gs:// but wrong for the Files API, where a
+    fresh id is minted on every upload - pass the camera roll filename there
+    so re-ingesting the same clip replaces its shots instead of doubling them.
+    """
     if not video_uri.startswith((GCS_PREFIX, FILES_API_PREFIX)):
         raise ValueError(
             f"video_uri must be a gs:// object or a Files API URI, got {video_uri!r}"
@@ -121,4 +128,4 @@ def log_clip(
             "response_schema": shot_response_schema(vocabulary),
         },
     )
-    return rows_from_response(response.text, vocabulary, video_uri)
+    return rows_from_response(response.text, vocabulary, source_file or video_uri)

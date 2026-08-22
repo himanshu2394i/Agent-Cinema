@@ -2,9 +2,9 @@
 
     python smoke.py assets/notld_1968_screenplay.pdf assets/sintel_trailer.mp4
 
-This is the whole ingest half in one run. It does not touch ClickHouse - the
-point is to find out whether Gemini logs footage well enough to be worth
-storing, which is the project's biggest untested assumption.
+This is the whole ingest half in one run, ending with the shots inserted into
+ClickHouse so the agent can answer questions about the clip. Re-running
+replaces that clip's rows rather than duplicating them.
 
 The parsed vocabulary is cached, because re-reading a 120-page screenplay on
 every run burns quota for no new information. Delete the cache to re-parse.
@@ -19,6 +19,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from google import genai
 
+from db import connect, replace_clip
 from ingest import log_clip
 from parse_script import parse_screenplay
 from vocab import ProjectVocabulary
@@ -69,8 +70,12 @@ def main() -> int:
 
     print("logging shots ...")
     start = time.perf_counter()
-    rows = log_clip(uri, vocabulary, client)
+    rows = log_clip(uri, vocabulary, client, source_file=video.name)
     print(f"  {len(rows)} shots in {time.perf_counter() - start:.0f}s\n")
+
+    written = replace_clip(connect(), rows)
+    print(f"inserted {written} shots into ClickHouse")
+    print()
 
     for row in rows:
         span = f"{row['start_seconds']:>6.1f}-{row['end_seconds']:<6.1f}"

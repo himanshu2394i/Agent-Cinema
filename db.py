@@ -10,6 +10,7 @@ source. See .env.example for the keys.
 
 import os
 import sys
+import uuid
 from itertools import batched
 
 import clickhouse_connect
@@ -57,16 +58,47 @@ def connect():
     )
 
 
+def insert_rows(client, rows) -> int:
+    """Insert shot rows. Column order comes from INSERT_COLUMNS, not the dict.
+
+    Every insert carries a fresh deduplication token. ClickHouse hashes each
+    inserted block and silently drops an identical repeat - which is helpful
+    for retrying a failed insert, and disastrous for re-logging a clip whose
+    shots came out the same, because the write is dropped with no error.
+    """
+    rows = list(rows)
+    client.insert(
+        TABLE,
+        [[row[column] for column in INSERT_COLUMNS] for row in rows],
+        column_names=INSERT_COLUMNS,
+        settings={"insert_deduplication_token": str(uuid.uuid4())},
+    )
+    return len(rows)
+
+
+def replace_clip(client, rows) -> int:
+    """Insert one clip's shots, dropping any earlier logging of that clip.
+
+    Without this a second smoke run silently doubles the shots for a file.
+    """
+    rows = list(rows)
+    sources = {row["source_file"] for row in rows}
+    for source in sources:
+        # Lightweight DELETE, waited out on every replica. ponytail: fine per
+        # clip at ingest; batch into one DELETE ... IN if it ever runs hot.
+        client.command(
+            f"DELETE FROM {TABLE} WHERE source_file = %(src)s",
+            parameters={"src": source},
+            settings={"lightweight_deletes_sync": 2},
+        )
+    return insert_rows(client, rows)
+
+
 def load(client, count: int) -> None:
     rows = generate_rows(demo_vocabulary(), count)
     done = 0
     for chunk in batched(rows, BATCH):
-        client.insert(
-            TABLE,
-            [[row[c] for c in INSERT_COLUMNS] for row in chunk],
-            column_names=INSERT_COLUMNS,
-        )
-        done += len(chunk)
+        done += insert_rows(client, chunk)
         print(f"  inserted {done:,}/{count:,}", flush=True)
 
 

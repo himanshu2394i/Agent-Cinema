@@ -112,3 +112,13 @@ def test_accepts_a_files_api_uri():
     assert rows[0]["source_file"] == FILES_URI
     part = next(p for p in client.models.calls[0]["contents"] if "file_data" in p)
     assert part["file_data"]["file_uri"] == FILES_URI
+
+
+def test_source_file_can_be_labelled_independently_of_the_upload_uri():
+    # A Files API upload gets a fresh URI every time, so using it as the
+    # clip's identity would defeat de-duplication on re-ingest.
+    client = FakeClient(_reply(SHOT))
+    rows = log_clip(FILES_URI, VOCAB, client, source_file="A001_C003.mp4")
+    assert rows[0]["source_file"] == "A001_C003.mp4"
+    part = next(p for p in client.models.calls[0]["contents"] if "file_data" in p)
+    assert part["file_data"]["file_uri"] == FILES_URI
