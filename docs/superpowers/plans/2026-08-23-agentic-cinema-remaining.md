@@ -582,6 +582,8 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ### Task 3: Move to Vertex AI
 
+> **AMENDED 2026-08-23:** the billing account has no credits, so this task is DROPPED. Do not link billing - it would charge a real card. Staying on the AI Studio free tier. Revisit only if the hackathon's $100 credit grant arrives.
+
 An AI Studio key does not satisfy "powered by Gemini and Google Cloud", and its free tier dies after about one query a minute. Both problems have the same fix.
 
 **Files:**
@@ -738,6 +740,8 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ---
 
 ### Task 4: Deploy the agent
+
+> **AMENDED 2026-08-23:** Steps 1-2 are done. Steps 3-6 are DROPPED - Cloud Run needs a billing account on the project and there are no credits. The project ships undeployed.
 
 Phase 5 of the brief asks for a deployed agent, and "production-ready" is in the challenge text. The agent spawns `mcp-clickhouse` as a subprocess, so the container must contain it.
 
