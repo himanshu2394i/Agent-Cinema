@@ -1,0 +1,8 @@
+google-adk
+google-genai
+# mcp must stay below 2.0: ADK 2.7.1 imports mcp.shared.session.ProgressFnT,
+# which mcp 2.0 removed. Installing mcp>=2.0 breaks the agent at import time.
+mcp<2
+mcp-clickhouse
+clickhouse-connect
+python-dotenv

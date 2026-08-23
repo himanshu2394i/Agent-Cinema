@@ -26,7 +26,11 @@ from synth import demo_vocabulary
 load_dotenv()
 
 SCRIPTS = str(Path(sys.executable).parent)
-SERVER = shutil.which("mcp-clickhouse", path=SCRIPTS) or "mcp-clickhouse"
+SERVER = (
+    shutil.which("mcp-clickhouse", path=SCRIPTS)
+    or shutil.which("mcp-clickhouse")
+    or "mcp-clickhouse"
+)
 
 # The MCP server is a separate process and does not inherit our .env, so the
 # connection details are handed over explicitly. Nothing else is passed.
