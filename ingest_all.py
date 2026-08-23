@@ -1,10 +1,13 @@
 """Ingest a directory of clips into ClickHouse.
 
     python ingest_all.py assets/clips
+    python ingest_all.py assets/clips --force
 
 One clip at a time, on purpose. A failure mid-batch leaves everything already
-logged in place, and re-running is always safe - replace_clip makes each clip
-idempotent, so the right move after any failure is to run it again.
+logged in place, and re-running is cheap: clips already logged in ClickHouse
+are skipped, so a retry only spends an API call on the clips still missing.
+Pass --force to re-ingest everything anyway, e.g. after changing the logging
+prompt and wanting fresh results for clips that already succeeded.
 """
 
 import sys
@@ -14,7 +17,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from google import genai
 
-from db import connect, replace_clip
+from db import connect, logged_sources, replace_clip
 from ingest import log_clip
 from vocab import load_vocabulary
 
@@ -34,17 +37,28 @@ def upload_and_log(video: Path, vocabulary, client) -> list[dict]:
     return log_clip(upload(video, client), vocabulary, client, source_file=video.name)
 
 
-def run_batch(videos, vocabulary, client, db, log_clip, replace_clip,
-              log=print) -> tuple[int, list[str]]:
+def run_batch(videos, vocabulary, client, db, log_clip, replace_clip, logged_sources,
+              force=False, log=print) -> tuple[int, list[str], list[str]]:
     """Log every clip in `videos`, one at a time.
+
+    A clip whose name is already logged in ClickHouse is skipped, not
+    re-ingested - re-running a batch after a partial failure must not spend
+    an API call on clips it already has. `force=True` bypasses the skip, for
+    when the logging prompt changed and fresh results are wanted deliberately.
 
     A clip that raises is recorded as failed and the batch continues - a
     stuck or rate-limited clip should not cost the rest of the run. Returns
-    (total shots written, names of clips that failed).
+    (total shots written, names of clips that failed, names of clips skipped).
     """
     total = 0
     failed: list[str] = []
+    skipped: list[str] = []
+    already_logged = set() if force else logged_sources(db)
     for index, video in enumerate(videos, start=1):
+        if video.name in already_logged:
+            log(f"[{index}/{len(videos)}] {video.name} - already logged, skipping")
+            skipped.append(video.name)
+            continue
         log(f"[{index}/{len(videos)}] {video.name}")
         try:
             start = time.perf_counter()
@@ -55,7 +69,7 @@ def run_batch(videos, vocabulary, client, db, log_clip, replace_clip,
         except Exception as error:
             log(f"    FAILED: {type(error).__name__}: {error}")
             failed.append(video.name)
-    return total, failed
+    return total, failed, skipped
 
 
 def exit_code(failed: list[str]) -> int:
@@ -63,7 +77,10 @@ def exit_code(failed: list[str]) -> int:
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
+    args = sys.argv[1:]
+    force = "--force" in args
+    paths = [a for a in args if a != "--force"]
+    if len(paths) != 1:
         print(__doc__)
         return 2
 
@@ -72,18 +89,24 @@ def main() -> int:
     db = connect()
     vocabulary = load_vocabulary()
 
-    videos = sorted(Path(sys.argv[1]).glob("*.mp4"))
+    videos = sorted(Path(paths[0]).glob("*.mp4"))
     if not videos:
-        print(f"no .mp4 files in {sys.argv[1]}")
+        print(f"no .mp4 files in {paths[0]}")
         return 1
 
-    total, failed = run_batch(videos, vocabulary, client, db,
-                               log_clip=upload_and_log, replace_clip=replace_clip)
+    total, failed, skipped = run_batch(
+        videos, vocabulary, client, db,
+        log_clip=upload_and_log, replace_clip=replace_clip,
+        logged_sources=logged_sources, force=force,
+    )
 
-    print(f"\n{total} shots from {len(videos) - len(failed)}/{len(videos)} clips")
+    ingested = len(videos) - len(failed) - len(skipped)
+    print(f"\n{total} shots from {ingested}/{len(videos)} clips"
+          + (f" ({len(skipped)} already logged, skipped)" if skipped else ""))
     if failed:
         print("failed: " + ", ".join(failed))
-        print("re-run to retry - already-logged clips are replaced, not duplicated")
+        print("re-run to retry - already-logged clips are skipped, so it only costs "
+              "one API call per clip still missing")
     return exit_code(failed)
 
 

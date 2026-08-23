@@ -76,6 +76,17 @@ def insert_rows(client, rows) -> int:
     return len(rows)
 
 
+def logged_sources(client) -> set[str]:
+    """Distinct source_file values already in the table.
+
+    Lets a batch ingest skip clips it has already logged, so a re-run after
+    a partial failure costs one API call per genuinely-missing clip instead
+    of one per clip in the directory.
+    """
+    result = client.query(f"SELECT DISTINCT source_file FROM {TABLE}")
+    return {row[0] for row in result.result_rows}
+
+
 def replace_clip(client, rows) -> int:
     """Insert one clip's shots, dropping any earlier logging of that clip.
 
