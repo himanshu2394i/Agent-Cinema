@@ -28,3 +28,10 @@ def test_skips_the_opening_and_closing_credits():
 def test_refuses_a_plan_that_will_not_fit():
     with pytest.raises(ValueError, match="does not fit"):
         cut_plan(duration_s=100.0, clip_s=60.0, count=5)
+
+
+def test_refuses_zero_or_negative_count():
+    with pytest.raises(ValueError, match="count must be positive"):
+        cut_plan(duration_s=6000.0, clip_s=60.0, count=0)
+    with pytest.raises(ValueError, match="count must be positive"):
+        cut_plan(duration_s=6000.0, clip_s=60.0, count=-3)

@@ -19,6 +19,8 @@ def cut_plan(
 
     `trim_s` drops that much from each end, to skip credits.
     """
+    if count <= 0:
+        raise ValueError(f"count must be positive, got {count}")
     usable = duration_s - 2 * trim_s
     if usable < clip_s * count:
         raise ValueError(
