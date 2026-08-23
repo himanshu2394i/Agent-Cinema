@@ -113,3 +113,15 @@ def test_high_cardinality_fields_are_not_enumerated_in_full():
     assert text.count("'P01-") <= MAX_ENUMERATED
     # Small vocabularies stay fully listed - that is the common case.
     assert "'Sarah'" in text and "DISTINCT characters" not in text
+
+
+def test_source_file_description_covers_both_populations():
+    # It used to say "the gs:// clip this shot came from", which contradicted
+    # the population note in the same prompt and described only the synthetic
+    # rows - the real footage is named like a camera roll.
+    from shot_schema import agent_instruction
+
+    text = agent_instruction(VOCAB)
+    assert "the gs:// clip this shot came from" not in text
+    line = next(l for l in text.splitlines() if l.strip().startswith("source_file:"))
+    assert "gs://" not in line, f"source_file described as gs:// only: {line!r}"

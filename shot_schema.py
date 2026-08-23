@@ -182,7 +182,10 @@ def agent_instruction(vocabulary: ProjectVocabulary, table: str = "shots") -> st
             lines.append(f"  {field.name} ({kind}): {shown}")
         else:
             lines.append(f"  {field.name}: {field.clickhouse}, free text")
-    lines.append("  source_file: String, the gs:// clip this shot came from")
+    lines.append(
+        "  source_file: String, the clip this shot came from. Its shape tells"
+        " you which population the row belongs to - see below."
+    )
 
     return "\n\n".join([
         AGENT_ROLE,
