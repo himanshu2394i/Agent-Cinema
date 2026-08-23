@@ -21,16 +21,17 @@ from google import genai
 
 from db import connect, replace_clip
 from ingest import log_clip
+from ingest import upload as _upload
 from parse_script import parse_screenplay
-from vocab import ProjectVocabulary
+from vocab import VOCABULARY_CACHE, ProjectVocabulary, load_vocabulary
 
-CACHE = Path("assets/vocabulary.json")
+CACHE = VOCABULARY_CACHE
 
 
 def vocabulary_for(pdf: Path, client) -> ProjectVocabulary:
     if CACHE.exists():
         print(f"vocabulary: cached ({CACHE})")
-        return ProjectVocabulary(**json.loads(CACHE.read_text()))
+        return load_vocabulary(CACHE)
 
     print(f"vocabulary: parsing {pdf.name} ...")
     start = time.perf_counter()
@@ -42,14 +43,9 @@ def vocabulary_for(pdf: Path, client) -> ProjectVocabulary:
 
 def upload(video: Path, client):
     print(f"upload: {video.name} ({video.stat().st_size / 1e6:.1f} MB) ...")
-    handle = client.files.upload(file=str(video))
-    while handle.state.name == "PROCESSING":
-        time.sleep(2)
-        handle = client.files.get(name=handle.name)
-    if handle.state.name != "ACTIVE":
-        raise SystemExit(f"upload ended in state {handle.state.name}")
-    print(f"  ready: {handle.uri}")
-    return handle.uri
+    uri = _upload(video, client)
+    print(f"  ready: {uri}")
+    return uri
 
 
 def main() -> int:

@@ -10,6 +10,8 @@ poisons every query that filters on it afterwards. Cheap check, expensive bug.
 """
 
 import json
+import time
+from pathlib import Path
 
 from shot_schema import MODEL_FIELDS, allowed_values, shot_response_schema
 from vocab import ProjectVocabulary
@@ -41,6 +43,22 @@ the allowed values, use "unknown" rather than guessing the nearest one.
 
 Put anything the vocabulary cannot express into the action field in plain
 prose - it is the only place unanticipated detail survives."""
+
+
+def upload(video: Path, client) -> str:
+    """Upload a clip via the Files API and wait for it to become usable.
+
+    Shared by smoke.py (single clip) and ingest_all.py (batch) - both poll
+    the same Files API state machine, so one copy is the only one that can
+    drift.
+    """
+    handle = client.files.upload(file=str(video))
+    while handle.state.name == "PROCESSING":
+        time.sleep(2)
+        handle = client.files.get(name=handle.name)
+    if handle.state.name != "ACTIVE":
+        raise RuntimeError(f"upload ended in state {handle.state.name}")
+    return handle.uri
 
 
 def _check(field, value, allowed: list[str], where: str) -> None:

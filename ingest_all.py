@@ -18,18 +18,8 @@ from dotenv import load_dotenv
 from google import genai
 
 from db import connect, logged_sources, replace_clip
-from ingest import log_clip
+from ingest import log_clip, upload
 from vocab import load_vocabulary
-
-
-def upload(video: Path, client):
-    handle = client.files.upload(file=str(video))
-    while handle.state.name == "PROCESSING":
-        time.sleep(2)
-        handle = client.files.get(name=handle.name)
-    if handle.state.name != "ACTIVE":
-        raise RuntimeError(f"upload ended in state {handle.state.name}")
-    return handle.uri
 
 
 def upload_and_log(video: Path, vocabulary, client) -> list[dict]:

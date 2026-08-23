@@ -36,7 +36,9 @@ That matters more than it sounds. If the logger writes `"wide shot"` and the
 agent filters for `'wide'`, every query returns nothing while every component
 reports success. One field table in `shot_schema.py` generates the Gemini
 response schema, the ClickHouse DDL and the agent's prompt, and
-`test_shot_schema.py` fails if they ever disagree.
+`test_shot_schema.py` fails if the DDL and response schema ever cover
+different fields. That test compares field names, not the allowed values for
+each field, so it is not a full guarantee against drift by itself.
 
 Retrieval is deliberately not vector search. Shots are structured rows in
 ClickHouse, and the agent writes real SQL against them through the official
@@ -66,12 +68,8 @@ ClickHouse Cloud service, and (only for `clips.py`) `ffmpeg`/`ffprobe` on
 your PATH.
 
     python -m venv .venv
-    .venv/Scripts/python.exe -m pip install google-genai google-adk clickhouse-connect python-dotenv mcp-clickhouse pytest
-    cp .env.example .env    # then fill in your Google Cloud and ClickHouse Cloud values
-
-`requirements.txt` doesn't exist yet - it's planned for a later task. The
-line above is the actual set of top-level packages this project imports;
-`pip` will pull in everything each of those needs underneath.
+    .venv/Scripts/python.exe -m pip install -r requirements.txt
+    cp .env.example .env    # then fill in your Gemini and ClickHouse Cloud values
 
     .venv/Scripts/python.exe db.py init
     .venv/Scripts/python.exe smoke.py assets/notld_1968_screenplay.pdf assets/sintel_trailer.mp4
@@ -92,7 +90,7 @@ and batch-ingest the directory:
 
     .venv/Scripts/python.exe -m pytest -q
 
-56 tests pass. Every Gemini and ClickHouse call in the test suite goes
+60 tests pass. Every Gemini and ClickHouse call in the test suite goes
 through a hand-written fake client, not the real SDKs, so the whole pipeline
 is testable without a key or a live database.
 

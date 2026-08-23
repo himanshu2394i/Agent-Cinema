@@ -30,10 +30,11 @@ and came back with 12 correctly-named clips.
 ## How we built it
 
 Gemini for both stages of the pipeline - parsing the screenplay PDF into a
-vocabulary, and logging each video clip against it - called through Vertex
-AI. Google ADK runs the agent. Retrieval at query time goes through the
-official `mcp-clickhouse` MCP server, so the agent talks to ClickHouse the
-same way any MCP client would, not through a bespoke wrapper.
+vocabulary, and logging each video clip against it - called through the
+Gemini API with an AI Studio key (no cloud project, no billing). Google ADK
+runs the agent, run locally with `adk web`. Retrieval at query time goes
+through the official `mcp-clickhouse` MCP server, so the agent talks to
+ClickHouse the same way any MCP client would, not through a bespoke wrapper.
 
 ## Challenges we ran into
 
@@ -45,7 +46,10 @@ cast, locations, and props, and that becomes the only vocabulary Gemini is
 allowed to use when logging shots and the only one the agent is allowed to
 filter on. One field table (`shot_schema.py`) generates the Gemini response
 schema, the ClickHouse DDL, and the agent's prompt from the same source, and
-a test fails if they ever diverge.
+a test fails if the DDL and response schema ever cover different fields.
+That test checks field names, not the allowed values for each field - it
+would not catch, for example, the agent's prompt describing values that a
+different subset of rows actually carries.
 
 **ClickHouse silently drops identical insert blocks.** ClickHouse hashes each
 inserted block for deduplication, and a repeat of the same block is dropped
@@ -85,10 +89,13 @@ request instead of twenty. Verified live: 19 skipped, 1 attempted.
 
 ## Accomplishments that we're proud of
 
-The write vocabulary (what Gemini may log) and the read vocabulary (what the
-agent may filter on) are generated from the same source table, and a test
-fails the build if they ever disagree - so the failure mode where the logger
-and the query language quietly drift apart can't happen unnoticed.
+The write side (what Gemini may log) and the read side (what the agent may
+filter on) are generated from the same source table, and a test fails the
+build if the columns Gemini can write and the columns the agent's schema
+describes ever differ - the field-name half of drift can't happen unnoticed.
+It does not check that the *values* on both sides agree, which is a real gap:
+a scene vocabulary can still describe values that only a subset of the
+table's rows can have.
 
 This isn't just theory anymore: 19 of 20 clips cut from *Night of the Living
 Dead* are logged in ClickHouse as **156 real shot rows**, resolved against a
@@ -134,7 +141,7 @@ the established facts" question the vocabulary already answers.
 
 ## Built with
 
-`google-gemini`, `google-adk`, `vertex-ai`, `clickhouse`, `mcp`, `python`
+`google-gemini`, `google-adk`, `clickhouse`, `mcp`, `python`
 
 ---
 

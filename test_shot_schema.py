@@ -61,7 +61,6 @@ def test_ddl_and_response_schema_describe_the_same_fields():
 
 def test_enum_columns_use_low_cardinality():
     ddl = clickhouse_ddl("shots")
-    assert "shot_size       LowCardinality(String)" in " ".join(ddl.split("\n"))or True
     assert re.search(r"shot_size\s+LowCardinality\(String\)", ddl)
     assert re.search(r"characters\s+Array\(LowCardinality\(String\)\)", ddl)
     # Free text must not be LowCardinality - every value is distinct.
@@ -87,6 +86,18 @@ def test_agent_instruction_lists_the_same_vocabulary_ingest_writes():
     assert "action: String, free text" in text
     # The empty-result protocol is the whole point of the agent.
     assert "ILIKE" in text and "no footage" in text
+
+
+def test_agent_instruction_explains_the_two_populations():
+    # Real logged footage (A001_C0001.mp4, scene='unknown') and synthetic
+    # filler (gs://..., scene='P07-14B') share the table. Without this the
+    # agent treats scene-id filters as valid for real footage and vice versa.
+    from shot_schema import agent_instruction
+
+    text = agent_instruction(VOCAB)
+    assert "A001_C0001.mp4" in text
+    assert "scene" in text and "unknown" in text
+    assert "synthetic" in text.lower()
 
 
 def test_high_cardinality_fields_are_not_enumerated_in_full():

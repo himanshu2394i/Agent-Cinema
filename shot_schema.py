@@ -130,6 +130,21 @@ reporting the clips in plain language.
 
 Always cite source_file and take so the editor can pull the clip."""
 
+POPULATION_NOTE = """This table holds two different populations of rows -
+know which one a question is about before you filter:
+
+- Real logged footage: source_file looks like 'A001_C0001.mp4' (a camera
+  roll name). Its screenplay is unnumbered, so every real row has
+  scene = 'unknown'. When the user says "the footage", "the clips", or
+  names a clip file, they mean these rows.
+- Synthetic filler: source_file looks like 'gs://dailies/A004_C0834.mp4'.
+  These rows exist only to test query performance at scale and carry the
+  P##-## scene ids listed below. A scene-id filter (e.g. scene = 'P07-14B')
+  can only ever match synthetic rows, never the real footage.
+
+Do not treat a valid-looking scene id as evidence a query is about real
+footage, and do not expect real footage to have a numbered scene."""
+
 ZERO_ROW_PROTOCOL = """If a query returns no rows, do not report "no footage"
 yet. An empty result is far more often a wrong filter than an empty archive.
 Before answering, in this order:
@@ -173,5 +188,6 @@ def agent_instruction(vocabulary: ProjectVocabulary, table: str = "shots") -> st
         AGENT_ROLE,
         f"Table `{table}`. Columns and their allowed values:",
         "\n".join(lines),
+        POPULATION_NOTE,
         ZERO_ROW_PROTOCOL,
     ])
