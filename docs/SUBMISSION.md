@@ -18,6 +18,15 @@ structured rows, and an agent answers plain-English questions about the
 footage ("which clips show Ben inside the farmhouse?") with named clips and
 timecodes, by writing real SQL against those rows.
 
+We've run this on real footage, not just a demo case: *Night of the Living
+Dead* (1968) cut into 20 camera-roll-named clips, 19 of which are logged into
+ClickHouse as 156 shot rows. Characters resolve to names pulled from the
+screenplay - Ben, Barbara - not `unknown`. One logged action line, verbatim
+from the database: "Ben lifts and positions a heavy wooden table top against
+the window" - the barricading scene, and nobody typed that description.
+Asked "which clips show Ben indoors?", the agent queried ClickHouse over MCP
+and came back with 12 correctly-named clips.
+
 ## How we built it
 
 Gemini for both stages of the pipeline - parsing the screenplay PDF into a
@@ -64,6 +73,16 @@ Gemini returned `unknown` for nearly every character it logged. That's the
 escape hatch the vocabulary provides working as intended, even under
 adversarial input it was never designed for.
 
+**A "just retry" fix that cost a full day's quota.** The Gemini free tier
+caps out at 20 requests per model per day. Our first ingest batch over 20
+clips left one unlogged after a transient 503, and the tool's own advice was
+"re-run to retry" - correct about correctness, ruinous about cost. The
+re-run re-sent all 20 clips, including the 19 already safely in ClickHouse,
+and burned the entire day's allowance without ever reaching the one clip
+that actually needed it. The fix: the batch now checks ClickHouse for what's
+already logged before calling Gemini, and skips it. A retry now costs one
+request instead of twenty. Verified live: 19 skipped, 1 attempted.
+
 ## Accomplishments that we're proud of
 
 The write vocabulary (what Gemini may log) and the read vocabulary (what the
@@ -71,7 +90,14 @@ agent may filter on) are generated from the same source table, and a test
 fails the build if they ever disagree - so the failure mode where the logger
 and the query language quietly drift apart can't happen unnoticed.
 
-We also measured query performance against a 2-million-row synthetic
+This isn't just theory anymore: 19 of 20 clips cut from *Night of the Living
+Dead* are logged in ClickHouse as **156 real shot rows**, resolved against a
+vocabulary the same screenplay generated. Those 156 rows sit alongside a
+**2,000,000-row synthetic archive** used purely to stress-test query
+performance at scale - the two are never mixed together in a claim: 156 is
+what Gemini actually watched and logged, 2,000,000 is a synthetic load test.
+
+We also measured query performance against that 2-million-row synthetic
 archive in ClickHouse. From `db.py demo` against the live database:
 
 | Query | Latency |
@@ -140,6 +166,6 @@ honestly instead of guessing.
 **1:40–2:00 — the scale.** Run `db.py demo` on camera. Point at the numbers
 as they print - a `count()` in well under 100 ms, filtered queries in the
 same range, against millions of rows. *"That's what filtered search over
-this many shots looks like. Beyond the clips we just logged, this archive is
-synthetic - built to prove the query pattern holds at scale, not a claim
-about ingested footage."*
+this many shots looks like. 156 of these rows are real - 19 clips of *Night
+of the Living Dead* we just logged. The other 2 million are synthetic, added
+on top to prove the query pattern holds at scale."*
