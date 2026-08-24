@@ -51,6 +51,32 @@ That test checks field names, not the allowed values for each field - it
 would not catch, for example, the agent's prompt describing values that a
 different subset of rows actually carries.
 
+That still leaves the harder half of the problem: a vocabulary derived from
+a screenplay is only as complete as the screenplay. What happens when the
+camera sees something the script never named?
+
+We got an unplanned answer. Judy is a character in *Night of the Living
+Dead*, but the 1968 draft names her once in ninety-one pages, so the parser
+left her out of the vocabulary - correctly, on the evidence it had. Then
+Gemini hit her on screen. The row it wrote:
+
+    characters: ['Tom', 'unknown']
+    action:     "Judy clings emotionally to Tom while hugging him tight."
+
+Both halves of the design fired at once, and nobody set this up. The closed
+field refused to guess - it could have picked Barbara or Helen, both in the
+enum and both plausible women in that scene, and instead it said `unknown`.
+The open prose field caught what the enum couldn't express. She is still
+findable: searching the action text returns three shots across two clips,
+which is exactly the fallback the agent reaches for when a term isn't a
+column.
+
+That is the whole argument for the two-layer design in one row. Constrain
+what you can enumerate, keep free text for what you can't, and never let the
+model invent a value just to satisfy a schema - because an editor will
+forgive an empty result, and will not forgive a shot confidently labelled
+with the wrong actor's name.
+
 **ClickHouse silently drops identical insert blocks.** ClickHouse hashes each
 inserted block for deduplication, and a repeat of the same block is dropped
 - by design, for retry safety. But re-logging a clip whose shots happened to
@@ -163,12 +189,19 @@ hardcoding one."*
 
 **0:40–1:10 — the logging.** Continue the `smoke.py` run into the clip-logging
 step. Show shots streaming out for one clip: shot size, characters, action,
-as Gemini logs them. *"Nobody typed any of this."*
+as Gemini logs them. *"Nobody typed any of this."* Then hold on the Judy row
+- `characters: ['Tom', 'unknown']` beside the action line naming her. *"The
+screenplay mentions Judy once, so she never made it into the vocabulary. It
+could have guessed Barbara. It said unknown, and wrote her name in the
+description instead."*
 
 **1:10–1:40 — the payoff.** Open the agent (`adk web`) and ask *"Which clips
-show Ben inside the farmhouse?"* - get named clips and timecodes back. Then
-ask for something that isn't in the footage, and show the agent saying so
-honestly instead of guessing.
+show Ben outdoors with a rifle?"* - one clip comes back, with the action line
+and the dialogue. Then ask the same question with *indoors* and get three
+different clips, six shots, with timecodes. Two words apart, two correct and
+different answers: the filter is doing real work, not pattern-matching a
+plausible reply. Close the beat by asking for something the footage does not
+contain, and show the agent saying so rather than guessing.
 
 **1:40–2:00 — the scale.** Run `db.py demo` on camera. Point at the numbers
 as they print - a `count()` in well under 100 ms, filtered queries in the
