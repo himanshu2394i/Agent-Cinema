@@ -15,7 +15,7 @@ locations, and props that production actually uses - then has Gemini log
 every shot of footage against that vocabulary: shot size, characters,
 location, props, time of day, quality. The result lands in ClickHouse as
 structured rows, and an agent answers plain-English questions about the
-footage ("which clips show Ben inside the farmhouse?") with named clips and
+footage ("which clips show Ben outdoors with a rifle?") with named clips and
 timecodes, by writing real SQL against those rows.
 
 We've run this on real footage, not just a demo case: *Night of the Living
@@ -176,8 +176,9 @@ the established facts" question the vocabulary already answers.
 Record the terminal at a large, readable font size - judges are watching on
 laptops, often at reduced window size.
 
-**0:00–0:20 — the problem.** Show a folder of clips with identical
-camera-roll names (`A004_C0834.mp4`, `A004_C0835.mp4`, ...). *"An assistant
+**0:00–0:20 — the problem.** Show `assets/clips/` - twenty clips with
+interchangeable camera-roll names (`A001_C0001.mp4`, `A001_C0002.mp4`, ...),
+nothing to distinguish one from another without watching it. *"An assistant
 editor watches all of this overnight and writes down what's in it. That's
 called logging, and it's why nobody can find anything three weeks later."*
 
