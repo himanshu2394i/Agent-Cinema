@@ -19,8 +19,8 @@ footage ("which clips show Ben inside the farmhouse?") with named clips and
 timecodes, by writing real SQL against those rows.
 
 We've run this on real footage, not just a demo case: *Night of the Living
-Dead* (1968) cut into 20 camera-roll-named clips, 19 of which are logged into
-ClickHouse as 156 shot rows. Characters resolve to names pulled from the
+Dead* (1968) cut into 20 camera-roll-named clips, all of them logged into
+ClickHouse as 177 shot rows. Characters resolve to names pulled from the
 screenplay - Ben, Barbara - not `unknown`. One logged action line, verbatim
 from the database: "Ben lifts and positions a heavy wooden table top against
 the window" - the barricading scene, and nobody typed that description.
@@ -97,11 +97,11 @@ It does not check that the *values* on both sides agree, which is a real gap:
 a scene vocabulary can still describe values that only a subset of the
 table's rows can have.
 
-This isn't just theory anymore: 19 of 20 clips cut from *Night of the Living
-Dead* are logged in ClickHouse as **156 real shot rows**, resolved against a
-vocabulary the same screenplay generated. Those 156 rows sit alongside a
+This isn't just theory anymore: all 20 clips cut from *Night of the Living
+Dead* are logged in ClickHouse as **177 real shot rows**, resolved against a
+vocabulary the same screenplay generated. Those 177 rows sit alongside a
 **2,000,000-row synthetic archive** used purely to stress-test query
-performance at scale - the two are never mixed together in a claim: 156 is
+performance at scale - the two are never mixed together in a claim: 177 is
 what Gemini actually watched and logged, 2,000,000 is a synthetic load test.
 
 We also measured query performance against that 2-million-row synthetic
@@ -173,6 +173,6 @@ honestly instead of guessing.
 **1:40–2:00 — the scale.** Run `db.py demo` on camera. Point at the numbers
 as they print - a `count()` in well under 100 ms, filtered queries in the
 same range, against millions of rows. *"That's what filtered search over
-this many shots looks like. 156 of these rows are real - 19 clips of *Night
+this many shots looks like. 177 of these rows are real - 20 clips of *Night
 of the Living Dead* we just logged. The other 2 million are synthetic, added
 on top to prove the query pattern holds at scale."*
