@@ -200,8 +200,18 @@ show Ben outdoors with a rifle?"* - one clip comes back, with the action line
 and the dialogue. Then ask the same question with *indoors* and get three
 different clips, six shots, with timecodes. Two words apart, two correct and
 different answers: the filter is doing real work, not pattern-matching a
-plausible reply. Close the beat by asking for something the footage does not
-contain, and show the agent saying so rather than guessing.
+plausible reply.
+
+Close the beat with *"Which clips show someone riding a horse?"* There are
+none, and "horse" is in no vocabulary, so the agent skips straight to
+searching the prose - then reports that it looked in the action and dialogue
+text for *horse* and *riding*, found no horses, and surfaces the one thing
+that came close: *"Barbara talks to John while riding in the passenger seat
+of the car."* That is the answer worth ending on. An empty result and a
+badly-built query look identical from the outside, and an editor handed a
+bare "no footage" has no way to tell which one they are looking at. Here the
+agent shows what it searched and what nearly matched, so the person can
+judge for themselves.
 
 **1:40–2:00 — the scale.** Run `db.py demo` on camera. Point at the numbers
 as they print - a `count()` in well under 100 ms, filtered queries in the
@@ -209,3 +219,17 @@ same range, against millions of rows. *"That's what filtered search over
 this many shots looks like. 177 of these rows are real - 20 clips of *Night
 of the Living Dead* we just logged. The other 2 million are synthetic, added
 on top to prove the query pattern holds at scale."*
+
+**Recording notes.** The payoff beat asks three questions in thirty seconds,
+which no live run will fit - each agent round trip takes ten to twenty
+seconds. Record the runs separately and cut the waiting out. Showing the
+question, a beat of the tool call, then the answer reads as honest; showing
+thirty seconds of a spinner reads as slow.
+
+Check your quota before recording. The free tier allows twenty requests per
+day *per model*, so a session of rehearsals can exhaust the model you plan
+to demo on and leave you with a 429 mid-take. Set `AGENT_MODEL` to one you
+have not been using, and do a throwaway query first to confirm it answers.
+
+Terminal font large enough to read on a laptop. Judges are not watching this
+on your monitor.
