@@ -48,10 +48,16 @@ def test_scene_numbers_kept_verbatim():
 
 
 def test_unknown_escape_hatch_always_present():
-    # Ingest must be able to say "someone I can't identify" without breaking the enum.
-    pv = ProjectVocabulary.from_raw(characters=["Sarah"], locations=[], props=[], scenes=[])
-    assert "unknown" in pv.character_enum()
-    assert "Sarah" in pv.character_enum()
+    # Ingest must be able to say "someone I can't identify" without breaking the
+    # enum. enum_of is generic because every project field needs the same out.
+    pv = ProjectVocabulary.from_raw(
+        characters=["Sarah"], locations=["Diner"], props=[], scenes=[],
+    )
+    assert pv.enum_of("characters") == ["Sarah", "unknown"]
+    assert pv.enum_of("locations") == ["Diner", "unknown"]
+    # Even an empty field still offers the escape hatch, or ingest cannot log
+    # a clip from a screenplay that never named a prop.
+    assert pv.enum_of("props") == ["unknown"]
 
 
 def test_possessive_locations_are_not_mangled():

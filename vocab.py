@@ -100,9 +100,6 @@ class ProjectVocabulary:
         """
         return [*getattr(self, attr), UNKNOWN]
 
-    def character_enum(self) -> list[str]:
-        return self.enum_of("characters")
-
 
 VOCABULARY_CACHE = Path("assets/vocabulary.json")
 
