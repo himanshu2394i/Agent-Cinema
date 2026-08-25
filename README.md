@@ -71,26 +71,50 @@ your PATH.
     .venv/Scripts/python.exe -m pip install -r requirements.txt
     cp .env.example .env    # then fill in your Gemini and ClickHouse Cloud values
 
+`assets/` is gitignored, so a fresh clone has no screenplay and no footage.
+Both of ours are public domain — *Night of the Living Dead* (1968), whose
+copyright notice was omitted on release:
+
+    mkdir assets
+    curl -L -o assets/notld_1968_screenplay.pdf "https://archive.org/download/night-of-the-living-dead-1990-1989.02.00-1st/Night%20of%20the%20Living%20Dead%20%281968%29%20%5BRusso%20draft%5D_text.pdf"
+    curl -L -o assets/notld_full.mp4 "https://archive.org/download/Night.Of.The.Living.Dead_1080p/NightOfTheLivingDead_DVD5_512kb.mp4"
+
+The film is 334 MB. Cut it into stand-in dailies — a finished feature has no
+takes and no slate, but its shots are real photography with real coverage,
+which is what the logger needs to be tested against:
+
+    .venv/Scripts/python.exe clips.py assets/notld_full.mp4 assets/clips 20 45
+
+Then log one clip end to end, and open the agent:
+
     .venv/Scripts/python.exe db.py init
-    .venv/Scripts/python.exe smoke.py assets/notld_1968_screenplay.pdf assets/sintel_trailer.mp4
+    .venv/Scripts/python.exe smoke.py assets/notld_1968_screenplay.pdf assets/clips/A001_C0001.mp4
     .venv/Scripts/adk.exe web
+
+`smoke.py` must run before `adk web`: it writes `assets/vocabulary.json`, and
+the agent builds its system prompt from that file at import time. Without it
+you get a `FileNotFoundError` naming the missing file.
 
 `adk web` reads `dailies_agent/` from the current directory, so run it from
 the project root. Its first run on a machine asks (once) whether to enable
 anonymous telemetry. Once it's up, open http://127.0.0.1:8000 and ask it a
 question about the footage you just logged.
 
-To ingest more than one clip at a time, cut a feature into stand-in dailies
-and batch-ingest the directory:
+`smoke.py` logs one clip. To log the whole directory you cut earlier:
 
-    .venv/Scripts/python.exe clips.py assets/notld_full.mp4 assets/clips 20 45
     .venv/Scripts/python.exe ingest_all.py assets/clips
+
+That skips any clip already in the table, so re-running after a failure costs
+one Gemini call per clip still missing rather than one per clip in the
+directory — which matters, because the free tier allows twenty requests per
+day per model. Pass `--force` to re-log everything anyway.
 
 ## Tests
 
     .venv/Scripts/python.exe -m pytest -q
 
-60 tests pass. Every Gemini and ClickHouse call in the test suite goes
+61 tests pass, from a clean clone with nothing installed but
+`requirements.txt` — verified. Every Gemini and ClickHouse call in the suite goes
 through a hand-written fake client, not the real SDKs, so the whole pipeline
 is testable without a key or a live database.
 
