@@ -50,7 +50,7 @@ def _titlecase(text: str) -> str:
     return _WORD.sub(lambda m: m.group(0)[0].upper() + m.group(0)[1:].lower(), text)
 
 
-def _clean(values: list[str], *, verbatim: bool = False) -> list[str]:
+def normalize_terms(values: list[str], *, verbatim: bool = False) -> list[str]:
     """Strip cue decorations, normalise, drop blanks, dedupe case-insensitively.
 
     First spelling encountered wins, so ordering follows the screenplay.
@@ -85,11 +85,11 @@ class ProjectVocabulary:
         scenes: list[str],
     ) -> "ProjectVocabulary":
         return cls(
-            characters=_clean(characters),
-            locations=_clean(locations),
-            props=_clean(props),
+            characters=normalize_terms(characters),
+            locations=normalize_terms(locations),
+            props=normalize_terms(props),
             # Scene ids are slate data. "14B" is not prose; never recase it.
-            scenes=_clean(scenes, verbatim=True),
+            scenes=normalize_terms(scenes, verbatim=True),
         )
 
     def enum_of(self, attr: str) -> list[str]:
