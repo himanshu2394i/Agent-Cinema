@@ -103,6 +103,22 @@ Gemini returned `unknown` for nearly every character it logged. That's the
 escape hatch the vocabulary provides working as intended, even under
 adversarial input it was never designed for.
 
+**Footage with no screenplay, and a survey that returned nothing.** A
+vocabulary derived from a script is no use for documentary or event
+coverage, so `survey.py` builds one from the footage instead: an
+unconstrained pass over a sample of clips, then the terms that recur often
+enough become a proposal a human edits before the real logging runs. The
+first run against real clips proposed *nothing at all*. Each clip is an
+independent API call with no memory of the last, so Gemini described the
+same woman as "woman with blonde hair", then "woman in beige coat", then
+"woman with long blonde hair and jean jacket" - three subjects by the
+counter's reckoning, none of them recurring. Our unit tests had missed it
+completely, because we wrote the variants to merge. The survey is now
+sequential and carries forward what it has already named, the way a human
+logger learns a cast: same three clips afterwards, "Woman With Blonde Hair"
+in three of three, "Man With Glasses" in three of three, one-off faces
+correctly dropped.
+
 **A "just retry" fix that cost a full day's quota.** The Gemini free tier
 caps out at 20 requests per model per day. Our first ingest batch over 20
 clips left one unlogged after a transient 503, and the tool's own advice was
@@ -157,10 +173,16 @@ answered.
 
 ## What's next
 
-Unscripted footage (interviews, documentary coverage) has no screenplay to
-generate a vocabulary from, so that path needs a two-pass approach - a first
-pass over the footage itself to propose a vocabulary, then logging against
-it. Continuity checking - flagging when a prop or costume detail
+The two-pass survey for unscripted footage works, but we have only proven it
+on scripted material used as a stand-in - three clips of a feature, treated
+as though no script existed. Real documentary coverage is harder in ways we
+have not yet met: far more incidental faces, and subjects who change costume
+between shoots, which is exactly what a description like "woman in red coat"
+depends on staying still. It also needs testing at more than three clips,
+where the carried-forward list of known terms grows long enough to become a
+prompt-size problem of its own.
+
+Continuity checking - flagging when a prop or costume detail
 contradicts an earlier shot of the same scene - is a straightforward reuse
 of the same logging pipeline, since it's asking the same "does this match
 the established facts" question the vocabulary already answers.

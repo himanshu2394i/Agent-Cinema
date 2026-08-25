@@ -56,6 +56,7 @@ results, not approximately-similar ones.
 | `ingest.py` | One clip to validated shot rows |
 | `clips.py` | Cuts a feature into camera-roll-named clips, via ffmpeg |
 | `ingest_all.py` | Batch ingest a directory of clips, one at a time |
+| `survey.py` | Proposes a vocabulary from footage that has no screenplay |
 | `synth.py` | Synthetic dailies, for testing search at archive scale |
 | `db.py` | ClickHouse connection, schema, bulk load |
 | `dailies_agent/` | The ADK agent (queries ClickHouse over MCP) |
