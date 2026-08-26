@@ -12,6 +12,7 @@ uvicorn
 google-api-python-client
 google-auth
 google-auth-httplib2
+google-auth-oauthlib
 
 # Kept here rather than a separate dev file so that the README's install
 # line is enough to run the test suite the README tells you to run.

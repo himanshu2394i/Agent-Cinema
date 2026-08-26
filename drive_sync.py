@@ -1,7 +1,7 @@
 """Sync .mp4 clips from a shared Google Drive folder into a project.
 
-Hackathon auth is a service account: share the folder with the SA email,
-store drive_folder_id on the project, then poll. No user OpenID.
+Hackathon auth: Desktop OAuth (`python drive_sync.py login`) because org
+policy blocks SA keys and Google blocks gcloud ADC for Drive scopes.
 """
 
 from __future__ import annotations
@@ -90,12 +90,49 @@ def sync_all_projects(drive: DriveClient | None = None) -> list[dict]:
     return results
 
 
+def _load_oauth_token():
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
+
+    path = Path(os.getenv("GOOGLE_DRIVE_TOKEN", ".adk/drive-token.json"))
+    if not path.is_file():
+        return None
+    creds = Credentials.from_authorized_user_file(str(path), [DRIVE_SCOPE])
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+        path.write_text(creds.to_json())
+    if creds and creds.valid:
+        return creds
+    return None
+
+
+def login() -> None:
+    """One-time browser login using this GCP project's Desktop OAuth client.
+
+    gcloud ADC is blocked for Drive ('This app is blocked'). Use a Desktop
+    OAuth client from APIs & Services → Credentials, with the consent screen
+    in Testing and your Google account added as a test user.
+    """
+    from google_auth_oauthlib.flow import InstalledAppFlow
+
+    client_path = Path(os.getenv("GOOGLE_DRIVE_OAUTH_CLIENT", "client_secret.json"))
+    if not client_path.is_file():
+        raise FileNotFoundError(
+            f"OAuth client JSON not found at {client_path}. "
+            "Create a Desktop OAuth client in GCP and download it there."
+        )
+    flow = InstalledAppFlow.from_client_secrets_file(str(client_path), [DRIVE_SCOPE])
+    creds = flow.run_local_server(port=0)
+    token_path = Path(os.getenv("GOOGLE_DRIVE_TOKEN", ".adk/drive-token.json"))
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    token_path.write_text(creds.to_json())
+    print(f"Saved Drive token to {token_path}")
+
+
 def try_drive_client() -> DriveClient | None:
     """Build the real Drive client, or None if credentials are missing.
 
-    Prefers a service-account JSON if present. If org policy blocks key
-    creation, falls back to Application Default Credentials (gcloud user login
-    with the Drive readonly scope).
+    Order: service-account JSON → saved OAuth token → gcloud ADC.
     """
     try:
         from google.auth import default as google_auth_default
@@ -114,11 +151,17 @@ def try_drive_client() -> DriveClient | None:
         credentials = service_account.Credentials.from_service_account_file(
             creds_path, scopes=[DRIVE_SCOPE]
         )
-    else:
+    if credentials is None:
+        try:
+            credentials = _load_oauth_token()
+        except Exception:
+            log.debug("Saved Drive OAuth token not usable")
+            credentials = None
+    if credentials is None:
         try:
             credentials, _ = google_auth_default(scopes=[DRIVE_SCOPE])
         except Exception:
-            log.debug("No Drive credentials (JSON key or gcloud ADC)")
+            log.debug("No Drive credentials (OAuth token, JSON key, or ADC)")
             return None
 
     if credentials is None:
@@ -162,3 +205,12 @@ class GoogleDriveClient:
             done = False
             while not done:
                 _, done = downloader.next_chunk()
+
+
+if __name__ == "__main__":
+    import sys
+
+    if sys.argv[1:] == ["login"]:
+        login()
+    else:
+        raise SystemExit("Usage: python drive_sync.py login")

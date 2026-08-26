@@ -127,15 +127,24 @@ your project slug, and run `adk web`.
 
 ### Google Drive folder (ongoing dailies)
 
-GCP often blocks service-account JSON keys
-(`iam.disableServiceAccountKeyCreation`). For the hackathon, log in as yourself:
+Do **not** use `gcloud auth application-default login` for Drive — Google
+blocks the Cloud SDK app on that sensitive scope ("This app is blocked").
+Service-account JSON keys are also blocked by org policy.
 
-    gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/drive.readonly
+1. [OAuth consent screen](https://console.cloud.google.com/apis/credentials/consent?project=devpost-506321)
+   → **External** → **Testing** (do not publish).
+2. Add scope `https://www.googleapis.com/auth/drive.readonly`.
+3. **Test users** → add the Google account that owns the dailies folder.
+4. [Credentials](https://console.cloud.google.com/apis/credentials?project=devpost-506321)
+   → **Create credentials** → **OAuth client ID** → type **Desktop app**
+   (not the existing Web client). Download JSON as `client_secret.json`
+   in the repo root (gitignored).
+5. Login once:
 
-Keep `uvicorn projects_api` running — it polls every 2 minutes
-(`DRIVE_SYNC_INTERVAL_SECONDS`) and copies new `.mp4` files into
-`assets/projects/{id}/clips/`. Paste the folder URL in the onboarding wizard
-(use a folder your Google account can already open). Or:
+        .venv/Scripts/python.exe drive_sync.py login
+
+Keep `uvicorn projects_api` running — it polls every 2 minutes. Paste the
+folder URL in `/onboard`. Or:
 
     curl -X POST http://127.0.0.1:8080/projects/my-film/drive -H "Content-Type: application/json" -d "{\"folder\":\"https://drive.google.com/drive/folders/FILE_ID\"}"
 

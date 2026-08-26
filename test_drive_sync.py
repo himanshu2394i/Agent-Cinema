@@ -119,3 +119,32 @@ def test_try_drive_client_uses_adc_when_no_json_key(monkeypatch):
     )
     client = drive_sync.try_drive_client()
     assert client is not None
+
+
+def test_try_drive_client_uses_saved_oauth_token(tmp_path, monkeypatch):
+    import drive_sync
+
+    token = tmp_path / "drive-token.json"
+    token.write_text("{}")
+    monkeypatch.setenv("GOOGLE_DRIVE_TOKEN", str(token))
+    monkeypatch.delenv("GOOGLE_DRIVE_CREDENTIALS", raising=False)
+    monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
+
+    class FakeCreds:
+        valid = True
+        expired = False
+        refresh_token = "1//x"
+
+    monkeypatch.setattr(
+        "google.oauth2.credentials.Credentials.from_authorized_user_file",
+        lambda *args, **kwargs: FakeCreds(),
+    )
+    monkeypatch.setattr(
+        "google.auth.default",
+        lambda scopes=None: (_ for _ in ()).throw(RuntimeError("adc blocked")),
+    )
+    monkeypatch.setattr(
+        "googleapiclient.discovery.build",
+        lambda *args, **kwargs: object(),
+    )
+    assert drive_sync.try_drive_client() is not None
