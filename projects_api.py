@@ -89,7 +89,7 @@ app = FastAPI(title="Dailies Triage Projects API", lifespan=lifespan)
 
 
 class CreateProject(BaseModel):
-    id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
+    id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
     name: str
 
 
@@ -115,10 +115,10 @@ def api_create_project(body: CreateProject) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     drive_folder_id = None
     try:
-        drive_folder_id = provision_drive_project(body.id, body.name)
+        drive_folder_id = provision_drive_project(body.id.lower(), body.name)
     except Exception:
         log.exception("Drive folder provision failed for %s", body.id)
-    return {"id": body.id, "name": body.name, "drive_folder_id": drive_folder_id}
+    return {"id": body.id.lower(), "name": body.name, "drive_folder_id": drive_folder_id}
 
 
 @app.get("/projects")

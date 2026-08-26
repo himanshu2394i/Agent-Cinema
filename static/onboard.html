@@ -70,7 +70,14 @@
     async function api(path, opts = {}) {
       const res = await fetch(path, opts);
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.detail || res.statusText);
+      if (!res.ok) {
+        const d = body.detail;
+        let msg = res.statusText;
+        if (typeof d === 'string') msg = d;
+        else if (Array.isArray(d)) msg = d.map((x) => x.msg || JSON.stringify(x)).join('; ');
+        else if (d) msg = JSON.stringify(d);
+        throw new Error(msg);
+      }
       return body;
     }
 
@@ -82,6 +89,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: projectId, name: $('project-name').value.trim() || projectId }),
         });
+        projectId = created.id;
         $('create-msg').className = 'ok';
         $('create-msg').textContent = created.drive_folder_id
           ? `Created ${projectId} — Drive folder ready (drop mp4s there; we poll every 2 min)`

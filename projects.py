@@ -14,9 +14,20 @@ PROJECTS_ROOT = Path("assets/projects")
 LEGACY_CLIPS_DIR = Path("assets/clips")
 DEFAULT_CLIP_BASE_URL = "http://127.0.0.1:8080"
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+SLUG_INPUT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 CLIP_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.mp4$", re.IGNORECASE)
 FOLDER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{10,}$")
 FOLDER_URL_RE = re.compile(r"/folders/([A-Za-z0-9_-]+)")
+
+
+def normalize_slug(project_id: str) -> str:
+    text = (project_id or "").strip()
+    if not SLUG_INPUT_RE.match(text):
+        raise ValueError(
+            f"project_id {project_id!r} is not a valid slug "
+            "(use letters, digits, hyphens, underscores; stored lowercase)"
+        )
+    return text.lower()
 
 
 def _validate_slug(project_id: str) -> None:
@@ -109,7 +120,7 @@ def set_drive_folder(project_id: str, folder: str) -> str:
 
 def create_project(project_id: str, name: str) -> Path:
     """Create a new project directory with manifest and clips folder."""
-    _validate_slug(project_id)
+    project_id = normalize_slug(project_id)
     root = project_dir(project_id)
     if root.exists():
         raise FileExistsError(f"project {project_id!r} already exists")

@@ -29,6 +29,15 @@ def test_create_project_rejects_invalid_slug(tmp_path, monkeypatch):
         projects.create_project("My Film!", "x")
 
 
+def test_create_project_lowercases_slug(tmp_path, monkeypatch):
+    import projects
+    monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
+
+    root = projects.create_project("LailaMajnu", "LailaMajnuMovie")
+    assert root.name == "lailamajnu"
+    assert json.loads((root / "manifest.json").read_text())["id"] == "lailamajnu"
+
+
 def test_create_project_rejects_duplicate(tmp_path, monkeypatch):
     import projects
     monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
