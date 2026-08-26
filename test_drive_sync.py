@@ -200,3 +200,33 @@ def test_ensure_child_folder_reuses_existing_and_uploads_new_clips():
     uploaded = push_clips(fake, "child-1", [clip_existing, clip_new])
     assert uploaded == ["A001_C0002.mp4"]
     assert fake.uploads == [("child-1", "A001_C0002.mp4")]
+
+
+def test_replace_clips_trashes_existing_then_uploads_all():
+    from drive_sync import replace_clips
+    from pathlib import Path
+
+    class FakeReplaceDrive:
+        def __init__(self):
+            self.files = [{"id": "e1", "name": "A001_C0001.mp4"}]
+            self.trashed: list[str] = []
+            self.uploads: list[str] = []
+
+        def list_mp4s(self, folder_id: str) -> list[dict]:
+            live = {item["id"] for item in self.files} - set(self.trashed)
+            return [item for item in self.files if item["id"] in live]
+
+        def trash(self, file_id: str) -> None:
+            self.trashed.append(file_id)
+
+        def upload(self, path: Path, folder_id: str) -> None:
+            self.uploads.append(path.name)
+            self.files.append({"id": f"new-{path.name}", "name": path.name})
+
+    fake = FakeReplaceDrive()
+    uploaded = replace_clips(
+        fake, "child-1", [Path("A001_C0001.mp4"), Path("A001_C0002.mp4")]
+    )
+    assert fake.trashed == ["e1"]
+    assert uploaded == ["A001_C0001.mp4", "A001_C0002.mp4"]
+    assert fake.uploads == ["A001_C0001.mp4", "A001_C0002.mp4"]

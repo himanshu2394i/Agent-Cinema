@@ -46,6 +46,9 @@ class DriveClient(Protocol):
     def upload(self, path: Path, folder_id: str) -> None:
         ...
 
+    def trash(self, file_id: str) -> None:
+        """Move a Drive file to trash."""
+
 
 def stage_local_dailies(
     folder_name: str, sources: list[Path], root: Path | None = None
@@ -99,6 +102,19 @@ def push_clips(drive: DriveClient, folder_id: str, paths: list[Path]) -> list[st
         uploaded.append(name)
         existing.add(name)
     return uploaded
+
+
+def replace_clips(drive: DriveClient, folder_id: str, paths: list[Path]) -> list[str]:
+    """Trash mp4s already in the folder, then upload every local clip.
+
+    `push_clips` skips names that already exist, which is correct for an
+    incremental sync and wrong after a recut that reuses camera-roll names.
+    """
+    for item in drive.list_mp4s(folder_id):
+        file_id = item.get("id")
+        if file_id:
+            drive.trash(file_id)
+    return push_clips(drive, folder_id, paths)
 
 
 def _safe_clip_name(name: str) -> str | None:
@@ -311,6 +327,13 @@ class GoogleDriveClient:
             body=body, media_body=media, fields="id", supportsAllDrives=True
         ).execute()
 
+    def trash(self, file_id: str) -> None:
+        self.service.files().update(
+            fileId=file_id,
+            body={"trashed": True},
+            supportsAllDrives=True,
+        ).execute()
+
 
 if __name__ == "__main__":
     import sys
@@ -342,8 +365,22 @@ if __name__ == "__main__":
         set_drive_folder(slug, child)
         uploaded = push_clips(drive, child, sorted(local.glob("*.mp4")))
         print(f"local={local} drive_folder={child} uploaded={len(uploaded)}")
+    elif args[:1] == ["replace-clips"] and len(args) >= 2:
+        project_id = args[1]
+        drive = try_drive_client()
+        if drive is None:
+            raise SystemExit("Run: python drive_sync.py login  (must allow Drive edit)")
+        folder_id = load_manifest(project_id).get("drive_folder_id")
+        if not folder_id:
+            raise SystemExit(f"project {project_id!r} has no drive_folder_id")
+        paths = sorted(clips_dir(project_id).glob("*.mp4"))
+        if not paths:
+            raise SystemExit(f"no mp4s in {clips_dir(project_id)}")
+        uploaded = replace_clips(drive, folder_id, paths)
+        print(f"trashed+uploaded={len(uploaded)} local={len(paths)} folder={folder_id}")
     else:
         raise SystemExit(
             "Usage: python drive_sync.py login"
             " | python drive_sync.py bootstrap Project1 [assets/clips]"
+            " | python drive_sync.py replace-clips PROJECT_ID"
         )
