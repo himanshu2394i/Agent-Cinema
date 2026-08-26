@@ -91,7 +91,23 @@ gcloud storage cp assets/clips/*.mp4 gs://YOUR_PROJECT_ID-dailies/clips/
 
 ## 4. Deploy the agent to Cloud Run
 
-From the project root:
+For project `devpost-506321`, the one-shot script deploys the agent **and** a
+public clip watcher (`dailies-clips`) so agent answers can cite working
+`/watch` links via `CLIP_BASE_URL`:
+
+```powershell
+.\scripts\deploy.ps1
+```
+
+Or step by step — first the public clip service (bundles local `assets/clips/`
+into the image; those mp4s are gitignored and must exist on the deploy machine):
+
+```powershell
+.\scripts\deploy-clips.ps1
+# prints CLIP_BASE_URL=https://dailies-clips-....run.app
+```
+
+Then the agent:
 
 ```bash
 gcloud config set project YOUR_PROJECT_ID
@@ -118,9 +134,13 @@ Remove-Item $passFile
 
 ```bash
 gcloud run services update dailies-agent --region=us-central1 \
-  --set-env-vars=CLICKHOUSE_HOST=YOUR_HOST.clickhouse.cloud,CLICKHOUSE_PORT=8443,CLICKHOUSE_USER=agent_readonly,CLICKHOUSE_SECURE=true,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID,GOOGLE_CLOUD_LOCATION=us-central1,AGENT_MODEL=gemini-2.5-flash \
+  --set-env-vars=CLICKHOUSE_HOST=YOUR_HOST.clickhouse.cloud,CLICKHOUSE_PORT=8443,CLICKHOUSE_USER=agent_readonly,CLICKHOUSE_SECURE=true,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID,GOOGLE_CLOUD_LOCATION=us-central1,AGENT_MODEL=gemini-2.5-flash,CLIP_BASE_URL=https://dailies-clips-XXXX.a.run.app \
   --set-secrets=CLICKHOUSE_PASSWORD=clickhouse-password:latest
 ```
+
+`CLIP_BASE_URL` must be a **public** HTTPS base (not localhost). The
+`dailies-clips` service serves `/watch?project=…&file=…` with HTML5 video.
+Local onboarding still uses `projects_api` on port 8080.
 
 **Do not use `GOOGLE_CLOUD_LOCATION=global`** for this agent. The global
 endpoint has a separate, tighter RPM quota
@@ -198,7 +218,11 @@ gcloud run services logs read dailies-agent --region=us-central1 --limit=50
 
 Live deployment (devpost-506321):
 
-**https://dailies-agent-hdu4hzk2uq-uc.a.run.app**
+**Agent:** https://dailies-agent-hdu4hzk2uq-uc.a.run.app  
+**Clip watch (`CLIP_BASE_URL`):** https://dailies-clips-hdu4hzk2uq-uc.a.run.app
+
+Ask: *"List one clip where Ben appears indoors"* — answers should include a
+markdown `/watch` link on the clips service.
 
 - [ ] Deployed URL works with a real question
 - [ ] Agent uses read-only ClickHouse credentials

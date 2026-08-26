@@ -11,7 +11,7 @@ editing one tuple; the schema and the table cannot drift apart.
 
 from dataclasses import dataclass
 
-from vocab import CRAFT_VOCAB, ProjectVocabulary
+from .vocab import CRAFT_VOCAB, ProjectVocabulary
 
 CRAFT = "craft"            # fixed cinematographic vocabulary
 PROJECT = "project"        # derived from the screenplay
