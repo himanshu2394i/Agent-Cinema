@@ -182,10 +182,13 @@ depends on staying still. It also needs testing at more than three clips,
 where the carried-forward list of known terms grows long enough to become a
 prompt-size problem of its own.
 
-Continuity checking - flagging when a prop or costume detail
-contradicts an earlier shot of the same scene - is a straightforward reuse
-of the same logging pipeline, since it's asking the same "does this match
-the established facts" question the vocabulary already answers.
+Continuity checking exists now but has only ever run on a finished
+feature, where it correctly finds nothing: a released film has had its
+continuity errors caught already. Proving it in anger needs real dailies -
+multiple takes of one setup, shot hours apart - which is exactly the
+material we could not get hold of. Until then we know it detects a planted
+contradiction and stays quiet on the vaguer-description case, which is
+evidence of sensitivity, not of usefulness.
 
 ## Built with
 

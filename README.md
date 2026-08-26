@@ -57,6 +57,7 @@ results, not approximately-similar ones.
 | `clips.py` | Cuts a feature into camera-roll-named clips, via ffmpeg |
 | `ingest_all.py` | Batch ingest a directory of clips, one at a time |
 | `survey.py` | Proposes a vocabulary from footage that has no screenplay |
+| `continuity.py` | Compares one character's state across a location |
 | `synth.py` | Synthetic dailies, for testing search at archive scale |
 | `db.py` | ClickHouse connection, schema, bulk load |
 | `dailies_agent/` | The ADK agent (queries ClickHouse over MCP) |
@@ -114,10 +115,11 @@ day per model. Pass `--force` to re-log everything anyway.
 
     .venv/Scripts/python.exe -m pytest -q
 
-61 tests pass, from a clean clone with nothing installed but
-`requirements.txt` — verified. Every Gemini and ClickHouse call in the suite goes
-through a hand-written fake client, not the real SDKs, so the whole pipeline
-is testable without a key or a live database.
+The suite passes from a clean clone with nothing installed but
+`requirements.txt` — no `.env`, no credentials, no assets. That is the point:
+every Gemini and ClickHouse call in the tests goes through a hand-written fake
+client rather than the real SDKs, so the whole pipeline is testable without a
+key or a live database.
 
 ## Credits
 
