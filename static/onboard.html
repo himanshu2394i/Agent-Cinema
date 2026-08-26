@@ -26,6 +26,10 @@
 
   <section id="step-create">
     <h2>1. Create project</h2>
+    <label>Continue existing</label>
+    <select id="project-pick">
+      <option value="">— new production —</option>
+    </select>
     <label>Project id (slug)</label>
     <input id="project-id" type="text" placeholder="project2">
     <label>Display name (Drive folder name under dailies)</label>
@@ -95,6 +99,9 @@
           ? `Created ${projectId} — Drive folder ready (drop mp4s there; we poll every 2 min)`
           : `Created ${projectId}`;
         $('step-screenplay').hidden = false;
+        $('step-clips').hidden = false;
+        if (created.drive_folder_id) showChatStep();
+        history.replaceState({}, '', `/onboard?project=${encodeURIComponent(projectId)}`);
       } catch (e) {
         $('create-msg').className = 'error';
         $('create-msg').textContent = e.message;
@@ -127,6 +134,59 @@
       $('watch-hint').textContent =
         `Keep uvicorn on :8080 — Drive sync runs every 2 minutes. Watch links: /watch?project=${projectId}&file=A001_C0007.mp4`;
     }
+
+    async function resume(id) {
+      projectId = id;
+      const status = await api(`/projects/${id}`);
+      $('project-id').value = status.id;
+      $('project-name').value = status.name;
+      $('create-msg').className = 'ok';
+      $('create-msg').textContent = status.drive_folder_id
+        ? `Resumed ${status.id} (${status.clip_count} clip(s) on disk). Drive folder is linked.`
+        : `Resumed ${status.id}`;
+      $('step-screenplay').hidden = false;
+      $('step-clips').hidden = false;
+      if (status.has_vocabulary) {
+        try {
+          const vocab = await api(`/projects/${id}/vocabulary`);
+          $('vocab-preview').hidden = false;
+          $('vocab-preview').textContent = JSON.stringify(vocab, null, 2);
+          $('screenplay-msg').className = 'ok';
+          $('screenplay-msg').textContent = 'Vocabulary already parsed';
+        } catch (_) { /* none */ }
+      }
+      if (status.clip_count > 0 || status.drive_folder_id) showChatStep();
+      history.replaceState({}, '', `/onboard?project=${encodeURIComponent(id)}`);
+    }
+
+    $('project-pick').onchange = async () => {
+      const id = $('project-pick').value;
+      if (!id) return;
+      try { await resume(id); } catch (e) {
+        $('create-msg').className = 'error';
+        $('create-msg').textContent = e.message;
+      }
+    };
+
+    (async () => {
+      try {
+        const listed = await api('/projects');
+        const pick = $('project-pick');
+        for (const p of listed) {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = `${p.name} (${p.id})`;
+          pick.appendChild(opt);
+        }
+        const wanted = new URLSearchParams(location.search).get('project')
+          || (listed.some((p) => p.id === 'lailamajnu') ? 'lailamajnu' : '')
+          || (listed.length ? listed[listed.length - 1].id : '');
+        if (wanted && listed.some((p) => p.id === wanted)) {
+          pick.value = wanted;
+          await resume(wanted);
+        }
+      } catch (_) { /* API down */ }
+    })();
 
     $('btn-drive').onclick = async () => {
       const folder = $('drive-folder').value.trim();
