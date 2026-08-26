@@ -15,6 +15,7 @@ SHOT = {
     "int_ext": "interior", "location": "Diner", "characters": ["Sarah"],
     "props": ["The Letter"], "quality_flags": ["none"],
     "dialogue": "You kept it.", "action": "Sarah slides the letter across.",
+    "continuity": "Sarah in beige coat, buttoned; letter in her left hand.",
 }
 
 

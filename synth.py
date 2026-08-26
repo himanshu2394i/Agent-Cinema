@@ -110,6 +110,9 @@ def generate_rows(
                 ),
                 "dialogue": rng.choice(_LINES),
                 "action": f"{plan['characters'][0]} in the {plan['location'].lower()}.",
+                "continuity": "; ".join(
+                    f"{name} as established" for name in plan["characters"]
+                ),
             }
             produced += 1
 

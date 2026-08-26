@@ -42,7 +42,16 @@ Log only what is visible. If you cannot identify a character or location from
 the allowed values, use "unknown" rather than guessing the nearest one.
 
 Put anything the vocabulary cannot express into the action field in plain
-prose - it is the only place unanticipated detail survives."""
+prose - it is the only place unanticipated detail survives.
+
+For continuity, describe the STATE of what is on screen, not what happens:
+what each visible character is wearing and carrying, in which hand, and the
+state of anything that could change between takes - a lamp lit or unlit, a
+door open or shut, a glass full or empty, sleeves rolled or down. Write it
+as short clauses separated by semicolons, naming the character each clause
+belongs to. A later pass compares these across takes of the same setup, so
+describe the same detail the same way every time, and omit anything you
+cannot actually see rather than guessing at it."""
 
 
 def upload(video: Path, client) -> str:

@@ -125,3 +125,29 @@ def test_source_file_description_covers_both_populations():
     assert "the gs:// clip this shot came from" not in text
     line = next(l for l in text.splitlines() if l.strip().startswith("source_file:"))
     assert "gs://" not in line, f"source_file described as gs:// only: {line!r}"
+
+
+def test_continuity_is_captured_as_free_text():
+    from shot_schema import MODEL_FIELDS, TEXT
+
+    field = next(f for f in MODEL_FIELDS if f.name == "continuity")
+    # State is open-ended - "sleeves rolled", "lamp lit", "rifle in right
+    # hand". Enumerating it is impossible, so it must stay prose.
+    assert field.kind == TEXT
+    assert field.clickhouse == "String"
+    p = _props(shot_response_schema(VOCAB))
+    assert "enum" not in p["continuity"]
+
+
+def test_alter_statements_add_every_column_idempotently():
+    # CREATE TABLE IF NOT EXISTS never migrates a table that already exists,
+    # so adding a field silently leaves the live table one column short.
+    from shot_schema import DB_ONLY_COLUMNS, MODEL_FIELDS, alter_statements
+
+    stmts = alter_statements("shots")
+    assert len(stmts) == len(MODEL_FIELDS) + len(DB_ONLY_COLUMNS)
+    for s in stmts:
+        assert s.startswith("ALTER TABLE shots ADD COLUMN IF NOT EXISTS ")
+    joined = " ".join(stmts)
+    for field in MODEL_FIELDS:
+        assert f"IF NOT EXISTS {field.name} " in joined

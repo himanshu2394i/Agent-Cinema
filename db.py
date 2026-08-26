@@ -16,7 +16,7 @@ from itertools import batched
 import clickhouse_connect
 from dotenv import load_dotenv
 
-from shot_schema import MODEL_FIELDS, clickhouse_ddl
+from shot_schema import MODEL_FIELDS, alter_statements, clickhouse_ddl
 from synth import demo_vocabulary, generate_rows
 from vocab import ProjectVocabulary
 
@@ -136,7 +136,11 @@ def main() -> int:
 
     if command == "init":
         client.command(clickhouse_ddl(TABLE))
-        print(f"table {TABLE} ready")
+        # CREATE TABLE IF NOT EXISTS does nothing to a table that already
+        # exists, so init must also add any column added since it was made.
+        for statement in alter_statements(TABLE):
+            client.command(statement)
+        print(f"table {TABLE} ready ({len(MODEL_FIELDS)} model fields)")
     elif command == "load":
         load(client, int(args[1]))
     elif command == "demo":

@@ -51,6 +51,10 @@ MODEL_FIELDS: tuple[Field, ...] = (
     # anticipate is still captured here and still searchable.
     Field("dialogue", TEXT, "String"),
     Field("action", TEXT, "String"),
+    # Continuity is the state of things, not their presence: sleeves rolled,
+    # lamp lit, rifle in which hand. It cannot be enumerated, so it stays
+    # prose and is compared as prose rather than filtered on.
+    Field("continuity", TEXT, "String"),
 )
 
 # Written by the ingest job, not by the model, so they are absent from the
@@ -102,14 +106,32 @@ def shot_response_schema(vocabulary: ProjectVocabulary) -> dict:
     }
 
 
-def clickhouse_ddl(table: str = "shots") -> str:
-    """CREATE TABLE matching the response schema, column for column."""
-    columns = [
+def _all_columns(table: str) -> list[tuple[str, str]]:
+    return [
         ("shot_id", "UUID DEFAULT generateUUIDv4()"),
         ("source_file", "String"),
         *[(f.name, f.clickhouse) for f in MODEL_FIELDS],
         ("ingested_at", "DateTime DEFAULT now()"),
     ]
+
+
+def alter_statements(table: str = "shots") -> list[str]:
+    """Bring an existing table up to the current field table.
+
+    CREATE TABLE IF NOT EXISTS does nothing to a table that already exists,
+    so without these a new field lands in the response schema and the DDL
+    while the live table stays one column short, and the next insert fails
+    on an unknown column.
+    """
+    return [
+        f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {type_}"
+        for name, type_ in _all_columns(table)
+    ]
+
+
+def clickhouse_ddl(table: str = "shots") -> str:
+    """CREATE TABLE matching the response schema, column for column."""
+    columns = _all_columns(table)
     width = max(len(name) for name, _ in columns)
     body = ",\n".join(f"    {name:<{width}} {type_}" for name, type_ in columns)
     return (
