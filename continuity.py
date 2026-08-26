@@ -1,6 +1,7 @@
 """Continuity checking: does the state of a setup hold across its shots?
 
-    python continuity.py            # every group in the real footage
+    python continuity.py                        # every group in notld_1968
+    python continuity.py --project lailamajnu   # or another production
 
 A script supervisor's job is noticing that the rifle was in Ben's right hand
 in one take and his left in the next. That is a question about the STATE of
@@ -153,6 +154,31 @@ def check_group(group: Group, client, model: str = DEFAULT_MODEL) -> list[dict]:
     return findings
 
 
+STATE_COLUMNS = (
+    "source_file", "start_seconds", "scene", "location",
+    "continuity", "characters", "take",
+)
+
+
+def fetch_state_rows(db, project_id: str, pattern: str = "%") -> list[dict]:
+    """Shots with a continuity description, for one production only.
+
+    project_id is what scopes this, not the filename pattern. Every camera
+    names its first clip A001_C0001.mp4, so the old default of 'A001_%' spans
+    every production in the table once there is more than one - and comparing
+    two films' state against each other reports pure noise as continuity
+    errors. The pattern is still here to narrow within a project.
+    """
+    columns = ", ".join(STATE_COLUMNS)
+    result = db.query(
+        f"SELECT {columns} FROM shots WHERE project_id = %(pid)s"
+        " AND source_file LIKE %(p)s AND continuity != ''"
+        " ORDER BY source_file, start_seconds",
+        parameters={"pid": project_id, "p": pattern},
+    )
+    return [dict(zip(STATE_COLUMNS, row)) for row in result.result_rows]
+
+
 def main() -> int:
     from dotenv import load_dotenv
     from google import genai
@@ -162,22 +188,21 @@ def main() -> int:
     load_dotenv()
     client = genai.Client()
 
-    pattern = sys.argv[1] if len(sys.argv) > 1 else "A001_%"
-    rows = [
-        dict(zip(("source_file", "start_seconds", "scene", "location",
-                  "continuity", "characters", "take"), r))
-        for r in connect().query(
-            "SELECT source_file, start_seconds, scene, location, continuity,"
-            " characters, take FROM shots WHERE source_file LIKE %(p)s"
-            " AND continuity != '' ORDER BY source_file, start_seconds",
-            parameters={"p": pattern},
-        ).result_rows
-    ]
+    args = sys.argv[1:]
+    project_id = "notld_1968"
+    if "--project" in args:
+        index = args.index("--project")
+        project_id = args[index + 1]
+        args = args[:index] + args[index + 2:]
+    pattern = args[0] if args else "%"
+
+    rows = fetch_state_rows(connect(), project_id, pattern)
 
     groups = group_for_comparison(rows)
     if not groups:
-        print(f"no comparable groups in {pattern} - has anything been logged"
-              " since the continuity field was added?", file=sys.stderr)
+        print(f"no comparable groups in {project_id} matching {pattern} - has"
+              " anything been logged since the continuity field was added?",
+              file=sys.stderr)
         return 1
 
     print(f"{len(groups)} groups to check, from {len(rows)} shots with state",
