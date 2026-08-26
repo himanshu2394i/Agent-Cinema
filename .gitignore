@@ -9,3 +9,6 @@ assets/
 *.mov
 *.jsonl
 .superpowers/
+deploy/clips/assets/
+deploy/clips/projects.py
+deploy/clips/watch_server.py

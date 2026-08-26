@@ -28,6 +28,18 @@ gcloud projects add-iam-policy-binding $Project `
 Write-Host "==> Bundling agent dependencies..."
 New-Item -ItemType Directory -Force -Path "dailies_agent\assets" | Out-Null
 Copy-Item "assets\vocabulary.json" "dailies_agent\assets\vocabulary.json" -Force
+# ADK cloud_run packaging can replace package modules with same-named files
+# from the project root (which use absolute imports and break on Cloud Run).
+# Stash those roots for the duration of `adk deploy`, and drop __pycache__.
+$stashRoot = Join-Path $env:TEMP "dailies-agent-root-stash"
+New-Item -ItemType Directory -Force -Path $stashRoot | Out-Null
+$rootDupes = @("shot_schema.py", "synth.py", "vocab.py")
+foreach ($name in $rootDupes) {
+  if (Test-Path $name) {
+    Move-Item -Force $name (Join-Path $stashRoot $name)
+  }
+}
+Remove-Item -Recurse -Force "dailies_agent\__pycache__" -ErrorAction SilentlyContinue
 
 Write-Host "==> Creating ClickHouse secret (skip if exists)..."
 $pass = ((Get-Content ".env" | Where-Object { $_ -match '^CLICKHOUSE_PASSWORD=' }) -replace '^CLICKHOUSE_PASSWORD=','').Trim()
@@ -47,14 +59,29 @@ try {
 
 Write-Host "==> Deploying to Cloud Run (5-10 min)..."
 $env:ADK_DISABLE_TELEMETRY = "1"
-.venv\Scripts\adk.exe deploy cloud_run `
-  --project=$Project --region=$Region --service_name=$Service --with_ui `
-  dailies_agent -- --allow-unauthenticated --quiet
+try {
+  .venv\Scripts\adk.exe deploy cloud_run `
+    --project=$Project --region=$Region --service_name=$Service --with_ui `
+    dailies_agent -- --allow-unauthenticated --quiet
+} finally {
+  foreach ($name in $rootDupes) {
+    $stashed = Join-Path $stashRoot $name
+    if (Test-Path $stashed) {
+      Move-Item -Force $stashed $name
+    }
+  }
+  Remove-Item -Recurse -Force $stashRoot -ErrorAction SilentlyContinue
+}
+
+Write-Host "==> Deploying public clip watch service (CLIP_BASE_URL)..."
+& "$PSScriptRoot\deploy-clips.ps1"
+$clipBase = gcloud run services describe dailies-clips --region=$Region --project=$Project --format="value(status.url)"
+if (-not $clipBase) { throw "dailies-clips URL missing after deploy-clips.ps1" }
 
 Write-Host "==> Wiring env vars + secret..."
 $chHost = ((Get-Content ".env" | Where-Object { $_ -match '^CLICKHOUSE_HOST=' }) -replace '^CLICKHOUSE_HOST=','').Trim()
 gcloud run services update $Service --region=$Region --project=$Project `
-  --set-env-vars="CLICKHOUSE_HOST=$chHost,CLICKHOUSE_PORT=8443,CLICKHOUSE_USER=default,CLICKHOUSE_SECURE=true,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=$Project,GOOGLE_CLOUD_LOCATION=$Region,AGENT_MODEL=gemini-2.5-flash" `
+  --set-env-vars="CLICKHOUSE_HOST=$chHost,CLICKHOUSE_PORT=8443,CLICKHOUSE_USER=default,CLICKHOUSE_SECURE=true,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=$Project,GOOGLE_CLOUD_LOCATION=$Region,AGENT_MODEL=gemini-2.5-flash,CLIP_BASE_URL=$clipBase" `
   --set-secrets="CLICKHOUSE_PASSWORD=clickhouse-password:latest"
 
 Write-Host "==> Granting Vertex AI to Cloud Run service account..."

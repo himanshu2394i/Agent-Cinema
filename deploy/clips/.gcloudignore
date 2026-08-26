@@ -1,0 +1,4 @@
+# Keep mp4s in the upload; only skip Python junk if any.
+__pycache__/
+*.pyc
+.DS_Store

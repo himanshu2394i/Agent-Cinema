@@ -101,18 +101,26 @@ class ProjectVocabulary:
         return [*getattr(self, attr), UNKNOWN]
 
 
-VOCABULARY_CACHE = Path("assets/vocabulary.json")
+# Prefer package-local cache so Cloud Run (ADK only ships dailies_agent/) works.
+VOCABULARY_CACHE = Path(__file__).resolve().parent / "assets" / "vocabulary.json"
+_LEGACY_VOCABULARY_CACHE = Path("assets/vocabulary.json")
 
 
 def vocabulary_path_for(project_id: str) -> Path:
     """Path to a project's cached vocabulary, or the legacy default."""
-    from projects import vocabulary_path
+    try:
+        from projects import vocabulary_path
 
-    path = vocabulary_path(project_id)
-    if path.exists():
-        return path
-    if project_id == "notld_1968" and VOCABULARY_CACHE.exists():
-        return VOCABULARY_CACHE
+        path = vocabulary_path(project_id)
+        if path.exists():
+            return path
+    except ImportError:
+        path = Path(f"assets/projects/{project_id}/vocabulary.json")
+    if project_id == "notld_1968":
+        if VOCABULARY_CACHE.exists():
+            return VOCABULARY_CACHE
+        if _LEGACY_VOCABULARY_CACHE.exists():
+            return _LEGACY_VOCABULARY_CACHE
     return path
 
 
