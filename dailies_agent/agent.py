@@ -18,12 +18,15 @@ from dotenv import load_dotenv
 from google.adk.agents import LlmAgent
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
+from google.genai import types
 from mcp import StdioServerParameters
 
-from shot_schema import agent_instruction
-from synth import demo_vocabulary
+from .shot_schema import agent_instruction
+from .synth import demo_vocabulary
 
 load_dotenv()
+
+PROJECT_ID = os.getenv("PROJECT_ID", "notld_1968")
 
 SCRIPTS = str(Path(sys.executable).parent)
 SERVER = (
@@ -34,13 +37,17 @@ SERVER = (
 
 # The MCP server is a separate process and does not inherit our .env, so the
 # connection details are handed over explicitly. Nothing else is passed.
-CLICKHOUSE_ENV = {
-    key: os.environ[key]
-    for key in ("CLICKHOUSE_HOST", "CLICKHOUSE_PORT", "CLICKHOUSE_USER",
-                "CLICKHOUSE_PASSWORD", "CLICKHOUSE_DATABASE")
-    if key in os.environ
-}
+_CLICKHOUSE_KEYS = (
+    "CLICKHOUSE_HOST", "CLICKHOUSE_PORT", "CLICKHOUSE_USER",
+    "CLICKHOUSE_PASSWORD", "CLICKHOUSE_DATABASE",
+    "CLICKHOUSE_MCP_QUERY_TIMEOUT",
+)
+CLICKHOUSE_ENV = {key: os.environ[key] for key in _CLICKHOUSE_KEYS if key in os.environ}
 CLICKHOUSE_ENV.setdefault("CLICKHOUSE_SECURE", "true")
+# mcp-clickhouse defaults to read-only; set explicitly so a misconfigured
+# deploy cannot accidentally enable writes.
+CLICKHOUSE_ENV.setdefault("CLICKHOUSE_ALLOW_WRITE_ACCESS", "false")
+CLICKHOUSE_ENV.setdefault("CLICKHOUSE_MCP_QUERY_TIMEOUT", "30")
 
 clickhouse = McpToolset(
     connection_params=StdioConnectionParams(
@@ -53,8 +60,13 @@ clickhouse = McpToolset(
 
 root_agent = LlmAgent(
     name="dailies",
-    model=os.getenv("AGENT_MODEL", "gemini-3.6-flash"),
+    model=os.getenv("AGENT_MODEL", "gemini-2.5-flash"),
     description="Finds shots in a footage archive from a plain-English description.",
-    instruction=agent_instruction(demo_vocabulary()),
+    instruction=agent_instruction(demo_vocabulary(PROJECT_ID), project_id=PROJECT_ID),
     tools=[clickhouse],
+    generate_content_config=types.GenerateContentConfig(
+        http_options=types.HttpOptions(
+            retry_options=types.HttpRetryOptions(initial_delay=2, max_delay=30, attempts=5),
+        ),
+    ),
 )
