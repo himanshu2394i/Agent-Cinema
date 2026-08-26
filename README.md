@@ -121,9 +121,20 @@ project:
 
     .venv/Scripts/python.exe -m uvicorn projects_api:app --reload --port 8080
 
-Open http://127.0.0.1:8080/onboard. After uploading clips, ingest from the CLI
-the wizard shows, set `PROJECT_ID` in `.env` to your project slug, and run
-`adk web`.
+Open http://127.0.0.1:8080/onboard. After clips are on disk (upload or Drive
+sync), ingest from the CLI the wizard shows, set `PROJECT_ID` in `.env` to
+your project slug, and run `adk web`.
+
+### Google Drive folder (ongoing dailies)
+
+Enable the Drive API, create a service account JSON, and **share the folder**
+with that account’s `client_email`. Set `GOOGLE_DRIVE_CREDENTIALS` (or
+`GOOGLE_APPLICATION_CREDENTIALS`) and keep `uvicorn projects_api` running —
+it polls every 2 minutes (`DRIVE_SYNC_INTERVAL_SECONDS`) and copies new
+`.mp4` files into `assets/projects/{id}/clips/`. Paste the folder URL in the
+onboarding wizard, or:
+
+    curl -X POST http://127.0.0.1:8080/projects/my-film/drive -H "Content-Type: application/json" -d "{\"folder\":\"https://drive.google.com/drive/folders/FILE_ID\"}"
 
 ## Watching clips the agent cites
 

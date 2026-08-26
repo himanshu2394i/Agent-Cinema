@@ -170,6 +170,10 @@ Get the URL:
 gcloud run services describe dailies-agent --region=us-central1 --format="value(status.url)"
 ```
 
+Drive folder sync (optional): enable `drive.googleapis.com`, share the
+folder with the service account, set `GOOGLE_DRIVE_CREDENTIALS` on the
+process that runs `projects_api`. The API polls every 2 minutes.
+
 Wake ClickHouse Cloud if idle (services sleep after ~15 minutes of inactivity).
 
 ### Troubleshooting `429 RESOURCE_EXHAUSTED` (Vertex only)

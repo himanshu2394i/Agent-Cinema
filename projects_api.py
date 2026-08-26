@@ -7,6 +7,13 @@ Or mount from another ASGI app. Serves /onboard wizard at GET /onboard
 and /watch for HTML5 clip playback when the agent cites a source_file.
 """
 
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+from contextlib import asynccontextmanager
 from html import escape
 from pathlib import Path
 
@@ -17,21 +24,68 @@ from fastapi.staticfiles import StaticFiles
 from google import genai
 from pydantic import BaseModel, Field
 
+from drive_sync import sync_project, try_drive_client
 from parse_script import parse_screenplay
 from projects import (
     PROJECTS_ROOT,
     clips_dir,
     create_project,
     list_projects,
+    load_manifest,
     project_dir,
     resolve_clip,
+    set_drive_folder,
     vocabulary_path,
 )
 from vocab import load_vocabulary
 
+load_dotenv()
+
+log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
 
-app = FastAPI(title="Dailies Triage Projects API")
+
+def _sync_interval_seconds() -> int:
+    raw = os.getenv("DRIVE_SYNC_INTERVAL_SECONDS", "120")
+    try:
+        return int(raw)
+    except ValueError:
+        return 120
+
+
+async def _drive_poll_loop(stop: asyncio.Event, interval: int) -> None:
+    from drive_sync import sync_all_projects
+
+    while not stop.is_set():
+        try:
+            await asyncio.to_thread(sync_all_projects)
+        except Exception:
+            log.exception("background Drive sync failed")
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=interval)
+        except asyncio.TimeoutError:
+            continue
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    stop = asyncio.Event()
+    interval = _sync_interval_seconds()
+    task = None
+    if interval > 0:
+        task = asyncio.create_task(_drive_poll_loop(stop, interval))
+        log.info("Drive folder poll every %s seconds", interval)
+    yield
+    stop.set()
+    if task is not None:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="Dailies Triage Projects API", lifespan=lifespan)
 
 
 class CreateProject(BaseModel):
@@ -39,11 +93,16 @@ class CreateProject(BaseModel):
     name: str
 
 
+class AttachDrive(BaseModel):
+    folder: str
+
+
 class ProjectStatus(BaseModel):
     id: str
     name: str
     has_vocabulary: bool
     clip_count: int
+    drive_folder_id: str | None = None
 
 
 @app.post("/projects", status_code=201)
@@ -67,14 +126,42 @@ def api_project_status(project_id: str) -> ProjectStatus:
     root = project_dir(project_id)
     if not root.exists():
         raise HTTPException(status_code=404, detail="project not found")
-    manifest = __import__("json").loads((root / "manifest.json").read_text())
+    manifest = load_manifest(project_id)
     clips = list(clips_dir(project_id).glob("*.mp4"))
     return ProjectStatus(
         id=project_id,
         name=manifest["name"],
         has_vocabulary=vocabulary_path(project_id).exists(),
         clip_count=len(clips),
+        drive_folder_id=manifest.get("drive_folder_id"),
     )
+
+
+@app.post("/projects/{project_id}/drive")
+def api_attach_drive(project_id: str, body: AttachDrive) -> dict:
+    try:
+        folder_id = set_drive_folder(project_id, body.folder)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"id": project_id, "drive_folder_id": folder_id}
+
+
+@app.post("/projects/{project_id}/drive/sync")
+def api_sync_drive(project_id: str) -> dict:
+    if not project_dir(project_id).exists():
+        raise HTTPException(status_code=404, detail="project not found")
+    drive = try_drive_client()
+    if drive is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Drive is not configured (set GOOGLE_DRIVE_CREDENTIALS)",
+        )
+    try:
+        return sync_project(project_id, drive)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/projects/{project_id}/screenplay")
@@ -84,11 +171,10 @@ async def api_upload_screenplay(project_id: str, file: UploadFile = File(...)) -
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="upload a PDF screenplay")
 
-    load_dotenv()
     client = genai.Client()
     vocabulary = parse_screenplay(await file.read(), client)
     vocabulary_path(project_id).write_text(
-        __import__("json").dumps(
+        json.dumps(
             {
                 "characters": vocabulary.characters,
                 "locations": vocabulary.locations,

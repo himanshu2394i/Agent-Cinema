@@ -22,7 +22,7 @@
 </head>
 <body>
   <h1>New production</h1>
-  <p class="sub">Screenplay → vocabulary → clips → ask questions.</p>
+  <p class="sub">Screenplay → vocabulary → clips (upload or Drive folder) → ask questions.</p>
 
   <section id="step-create">
     <h2>1. Create project</h2>
@@ -43,7 +43,13 @@
   </section>
 
   <section id="step-clips" hidden>
-    <h2>3. Upload clips (.mp4)</h2>
+    <h2>3. Clips — keep adding as the shoot continues</h2>
+    <p class="sub">Upload here, or paste a Drive folder. While this API is running we poll Drive every 2 minutes for new .mp4 files.</p>
+    <label>Google Drive folder URL or id</label>
+    <input id="drive-folder" type="text" placeholder="https://drive.google.com/drive/folders/...">
+    <button id="btn-drive">Save folder + sync now</button>
+    <p id="drive-msg"></p>
+    <label>Or upload .mp4 files</label>
     <input id="clips-file" type="file" accept=".mp4" multiple>
     <button id="btn-clips">Upload clips</button>
     <p id="clips-msg"></p>
@@ -103,6 +109,40 @@
       }
     };
 
+    function showChatStep() {
+      $('step-chat').hidden = false;
+      $('ingest-cmd').textContent =
+        `.venv/Scripts/python.exe ingest_all.py assets/projects/${projectId}/clips --project ${projectId}`;
+      $('agent-link').href = `/?project_id=${projectId}`;
+      $('watch-hint').textContent =
+        `Keep uvicorn on :8080 — Drive sync runs every 2 minutes. Watch links: /watch?project=${projectId}&file=A001_C0007.mp4`;
+    }
+
+    $('btn-drive').onclick = async () => {
+      const folder = $('drive-folder').value.trim();
+      if (!folder) return;
+      try {
+        await api(`/projects/${projectId}/drive`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folder }),
+        });
+        let extra = '';
+        try {
+          const synced = await api(`/projects/${projectId}/drive/sync`, { method: 'POST' });
+          extra = ` Synced ${synced.downloaded.length} new clip(s), skipped ${synced.skipped.length}.`;
+        } catch (syncErr) {
+          extra = ` Folder saved; background poll will retry (${syncErr.message}).`;
+        }
+        $('drive-msg').className = 'ok';
+        $('drive-msg').textContent = 'Drive folder linked.' + extra;
+        showChatStep();
+      } catch (e) {
+        $('drive-msg').className = 'error';
+        $('drive-msg').textContent = e.message;
+      }
+    };
+
     $('btn-clips').onclick = async () => {
       const files = $('clips-file').files;
       if (!files.length) return;
@@ -114,12 +154,7 @@
         }
         $('clips-msg').className = 'ok';
         $('clips-msg').textContent = `Uploaded ${files.length} clip(s)`;
-        $('step-chat').hidden = false;
-        $('ingest-cmd').textContent =
-          `.venv/Scripts/python.exe ingest_all.py assets/projects/${projectId}/clips --project ${projectId}`;
-        $('agent-link').href = `/?project_id=${projectId}`;
-        $('watch-hint').textContent =
-          `Keep uvicorn on :8080 so agent answers can open /watch?project=${projectId}&file=A001_C0007.mp4`;
+        showChatStep();
       } catch (e) {
         $('clips-msg').className = 'error';
         $('clips-msg').textContent = e.message;

@@ -15,6 +15,8 @@ LEGACY_CLIPS_DIR = Path("assets/clips")
 DEFAULT_CLIP_BASE_URL = "http://127.0.0.1:8080"
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 CLIP_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.mp4$", re.IGNORECASE)
+FOLDER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{10,}$")
+FOLDER_URL_RE = re.compile(r"/folders/([A-Za-z0-9_-]+)")
 
 
 def _validate_slug(project_id: str) -> None:
@@ -71,6 +73,38 @@ def clip_watch_url(
     name = _safe_clip_name(filename)
     base = base_url.rstrip("/")
     return f"{base}/watch?project={project_id}&file={name}"
+
+
+def parse_folder_id(value: str) -> str:
+    """Accept a raw Drive folder id or a drive.google.com/folders/... URL."""
+    text = (value or "").strip()
+    match = FOLDER_URL_RE.search(text)
+    if match:
+        return match.group(1)
+    if FOLDER_ID_RE.match(text):
+        return text
+    raise ValueError("not a Google Drive folder id or folder URL")
+
+
+def load_manifest(project_id: str) -> dict:
+    path = project_dir(project_id) / "manifest.json"
+    if not path.is_file():
+        raise FileNotFoundError(f"project {project_id!r} not found")
+    return json.loads(path.read_text())
+
+
+def save_manifest(project_id: str, manifest: dict) -> None:
+    path = project_dir(project_id) / "manifest.json"
+    path.write_text(json.dumps(manifest, indent=2))
+
+
+def set_drive_folder(project_id: str, folder: str) -> str:
+    """Persist drive_folder_id on the project manifest. Returns the parsed id."""
+    folder_id = parse_folder_id(folder)
+    manifest = load_manifest(project_id)
+    manifest["drive_folder_id"] = folder_id
+    save_manifest(project_id, manifest)
+    return folder_id
 
 
 def create_project(project_id: str, name: str) -> Path:

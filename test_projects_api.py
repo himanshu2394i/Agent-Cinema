@@ -13,6 +13,7 @@ def client(tmp_path, monkeypatch):
     import projects
     import projects_api
 
+    monkeypatch.setenv("DRIVE_SYNC_INTERVAL_SECONDS", "0")
     monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
     monkeypatch.setattr(projects_api, "PROJECTS_ROOT", tmp_path)
     return TestClient(projects_api.app)
@@ -74,3 +75,36 @@ def test_serve_and_watch_project_clip(client, tmp_path, monkeypatch):
 def test_missing_clip_returns_404(client):
     client.post("/projects", json={"id": "empty", "name": "Empty"})
     assert client.get("/projects/empty/media/missing.mp4").status_code == 404
+
+
+def test_attach_drive_folder_and_sync(client, tmp_path, monkeypatch):
+    import drive_sync
+    import projects
+
+    monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
+    monkeypatch.setattr(drive_sync, "list_projects", projects.list_projects)
+    monkeypatch.setattr(drive_sync, "load_manifest", projects.load_manifest)
+    monkeypatch.setattr(drive_sync, "project_dir", projects.project_dir)
+    monkeypatch.setattr(drive_sync, "clips_dir", projects.clips_dir)
+
+    client.post("/projects", json={"id": "demo", "name": "Demo"})
+    attach = client.post(
+        "/projects/demo/drive",
+        json={"folder": "https://drive.google.com/drive/folders/1AbCDefGhIjk_lmnoPQRS"},
+    )
+    assert attach.status_code == 200
+    assert attach.json()["drive_folder_id"] == "1AbCDefGhIjk_lmnoPQRS"
+    assert client.get("/projects/demo").json()["drive_folder_id"] == "1AbCDefGhIjk_lmnoPQRS"
+
+    class FakeDrive:
+        def list_mp4s(self, folder_id):
+            return [{"id": "f2", "name": "A001_C0002.mp4"}]
+
+        def download(self, file_id, dest):
+            dest.write_bytes(b"clip")
+
+    monkeypatch.setattr("projects_api.try_drive_client", lambda: FakeDrive())
+    synced = client.post("/projects/demo/drive/sync")
+    assert synced.status_code == 200
+    assert synced.json()["downloaded"] == ["A001_C0002.mp4"]
+    assert (projects.clips_dir("demo") / "A001_C0002.mp4").is_file()
