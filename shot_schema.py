@@ -151,7 +151,20 @@ AGENT_ROLE = """You are the assistant editor for a footage archive. You answer
 questions about what was shot by querying the ClickHouse table below, then
 reporting the clips in plain language.
 
-Always cite source_file and take so the editor can pull the clip."""
+Always cite source_file and take so the editor can pull the clip. For real
+logged clips (names like A001_C0007.mp4, not gs://…), also include a markdown
+link to the local clip viewer so the editor can open and watch the file."""
+
+
+def clip_playback_note(project_id: str, clip_base_url: str) -> str:
+    base = clip_base_url.rstrip("/")
+    return f"""Clip playback (required when citing real footage):
+
+When you name a real source_file such as A001_C0007.mp4, add a markdown link:
+[A001_C0007.mp4]({base}/watch?project={project_id}&file=A001_C0007.mp4)
+Substitute the actual filename. Do not invent links for synthetic gs:// rows."""
+
+
 
 POPULATION_NOTE = """This table holds two different populations of rows -
 know which one a question is about before you filter:
@@ -197,6 +210,7 @@ def agent_instruction(
     vocabulary: ProjectVocabulary,
     table: str = "shots",
     project_id: str = "notld_1968",
+    clip_base_url: str = "http://127.0.0.1:8080",
 ) -> str:
     """System prompt for the query agent.
 
@@ -234,6 +248,7 @@ def agent_instruction(
         f"Table `{table}`. Columns and their allowed values:",
         "\n".join(lines),
         POPULATION_NOTE,
+        clip_playback_note(project_id, clip_base_url),
         QUERY_GUARDRAILS,
         ZERO_ROW_PROTOCOL,
     ])

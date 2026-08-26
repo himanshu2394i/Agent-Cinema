@@ -60,6 +60,8 @@ results, not approximately-similar ones.
 | `continuity.py` | Compares one character's state across a location |
 | `synth.py` | Synthetic dailies, for testing search at archive scale |
 | `db.py` | ClickHouse connection, schema, bulk load |
+| `projects.py` / `projects_api.py` | Multi-project onboarding + clip watch API |
+| `static/onboard.html` | Wizard: create project → screenplay → clips |
 | `dailies_agent/` | The ADK agent (queries ClickHouse over MCP) |
 | `smoke.py` | Whole pipeline in one run: screenplay -> vocabulary -> clip -> ClickHouse |
 
@@ -109,7 +111,28 @@ question about the footage you just logged.
 That skips any clip already in the table, so re-running after a failure costs
 one Gemini call per clip still missing rather than one per clip in the
 directory — which matters, because the free tier allows twenty requests per
-day per model. Pass `--force` to re-log everything anyway.
+day per model. Pass `--force` to re-log everything anyway. Scope a batch to a
+project with `--project my-film` (default `notld_1968`).
+
+## Multi-project onboarding
+
+Create a production, upload a screenplay and clips, then chat scoped to that
+project:
+
+    .venv/Scripts/python.exe -m uvicorn projects_api:app --reload --port 8080
+
+Open http://127.0.0.1:8080/onboard. After uploading clips, ingest from the CLI
+the wizard shows, set `PROJECT_ID` in `.env` to your project slug, and run
+`adk web`.
+
+## Watching clips the agent cites
+
+Keep the projects API running on port 8080 while you chat. The agent is
+instructed to cite real `source_file` values as markdown watch links, e.g.
+`http://127.0.0.1:8080/watch?project=notld_1968&file=A001_C0007.mp4`. That
+page plays the mp4 from `assets/projects/{id}/clips/` (or the legacy
+`assets/clips/` folder for `notld_1968`). Override the link base with
+`CLIP_BASE_URL` if the API is not on localhost:8080.
 
 ## Tests
 
@@ -120,6 +143,17 @@ The suite passes from a clean clone with nothing installed but
 every Gemini and ClickHouse call in the tests goes through a hand-written fake
 client rather than the real SDKs, so the whole pipeline is testable without a
 key or a live database.
+
+## Hackathon deploy
+
+See **`docs/HACKATHON_CHECKLIST.md`** for the full submission checklist and
+**`docs/DEPLOY.md`** for Vertex AI + Cloud Run deployment (you have GCP
+credits now). Quick path:
+
+    # Vertex in .env, then:
+    .venv/Scripts/adk.exe deploy cloud_run --project=YOUR_PROJECT --region=us-central1 --service_name=dailies-agent --with_ui dailies_agent
+
+Use a read-only ClickHouse user for the deployed agent; SQL is in `docs/DEPLOY.md`.
 
 ## Credits
 

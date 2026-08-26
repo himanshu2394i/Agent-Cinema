@@ -30,11 +30,12 @@ and came back with 12 correctly-named clips.
 ## How we built it
 
 Gemini for both stages of the pipeline - parsing the screenplay PDF into a
-vocabulary, and logging each video clip against it - called through the
-Gemini API with an AI Studio key (no cloud project, no billing). Google ADK
-runs the agent, run locally with `adk web`. Retrieval at query time goes
-through the official `mcp-clickhouse` MCP server, so the agent talks to
-ClickHouse the same way any MCP client would, not through a bespoke wrapper.
+vocabulary, and logging each video clip against it - via **Vertex AI** on
+Google Cloud (or the Gemini API locally). Google ADK runs the agent, deployed
+to **Cloud Run** for the live demo. Retrieval at query time goes through the
+official `mcp-clickhouse` MCP server (read-only, with query timeout
+settings), so the agent talks to ClickHouse the same way any MCP client would,
+not through a bespoke wrapper.
 
 ## Challenges we ran into
 
@@ -192,7 +193,7 @@ evidence of sensitivity, not of usefulness.
 
 ## Built with
 
-`google-gemini`, `google-adk`, `clickhouse`, `mcp`, `python`
+`google-gemini`, `google-adk`, `vertex-ai`, `clickhouse`, `mcp`, `cloud-run`, `python`
 
 ---
 

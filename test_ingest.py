@@ -38,8 +38,10 @@ class FakeClient:
 
 
 def test_rows_carry_the_source_file():
-    (row,) = rows_from_response(_reply(SHOT), VOCAB, "gs://dailies/A001_C003.mp4")
+    (row,) = rows_from_response(_reply(SHOT), VOCAB, "gs://dailies/A001_C003.mp4",
+                                project_id="notld_1968")
     assert row["source_file"] == "gs://dailies/A001_C003.mp4"
+    assert row["project_id"] == "notld_1968"
     assert row["scene"] == "14B" and row["characters"] == ["Sarah"]
 
 

@@ -104,14 +104,30 @@ class ProjectVocabulary:
 VOCABULARY_CACHE = Path("assets/vocabulary.json")
 
 
-def load_vocabulary(path: Path = VOCABULARY_CACHE) -> ProjectVocabulary:
+def vocabulary_path_for(project_id: str) -> Path:
+    """Path to a project's cached vocabulary, or the legacy default."""
+    from projects import vocabulary_path
+
+    path = vocabulary_path(project_id)
+    if path.exists():
+        return path
+    if project_id == "notld_1968" and VOCABULARY_CACHE.exists():
+        return VOCABULARY_CACHE
+    return path
+
+
+def load_vocabulary(
+    path: Path | None = None, *, project_id: str = "notld_1968"
+) -> ProjectVocabulary:
     """Load a vocabulary parsed earlier from a screenplay.
 
     Values are already normalised, so this constructs directly rather than
     going through from_raw.
     """
-    if not Path(path).exists():
+    target = path if path is not None else vocabulary_path_for(project_id)
+    if not Path(target).exists():
         raise FileNotFoundError(
-            f"No vocabulary at {path}. Run smoke.py against a screenplay first."
+            f"No vocabulary at {target}. Upload a screenplay for project"
+            f" {project_id!r} first."
         )
-    return ProjectVocabulary(**json.loads(Path(path).read_text()))
+    return ProjectVocabulary(**json.loads(Path(target).read_text()))

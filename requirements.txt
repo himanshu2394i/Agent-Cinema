@@ -6,6 +6,9 @@ mcp<2
 mcp-clickhouse
 clickhouse-connect
 python-dotenv
+fastapi
+python-multipart
+uvicorn
 
 # Kept here rather than a separate dev file so that the README's install
 # line is enough to run the test suite the README tells you to run.

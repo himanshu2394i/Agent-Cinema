@@ -105,13 +105,15 @@ VOCABULARY_CACHE = Path("assets/vocabulary.json")
 
 
 def vocabulary_path_for(project_id: str) -> Path:
-    """Path to vocabulary bundled with the agent package."""
-    bundled = Path(__file__).resolve().parent / "assets" / "vocabulary.json"
-    if bundled.exists():
-        return bundled
+    """Path to a project's cached vocabulary, or the legacy default."""
+    from projects import vocabulary_path
+
+    path = vocabulary_path(project_id)
+    if path.exists():
+        return path
     if project_id == "notld_1968" and VOCABULARY_CACHE.exists():
         return VOCABULARY_CACHE
-    return bundled
+    return path
 
 
 def load_vocabulary(

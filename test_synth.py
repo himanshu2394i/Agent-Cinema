@@ -23,7 +23,7 @@ def test_yields_exactly_the_requested_count():
 
 
 def test_rows_match_the_schema_field_set():
-    expected = {f.name for f in MODEL_FIELDS} | {"source_file"}
+    expected = {f.name for f in MODEL_FIELDS} | {"source_file", "project_id"}
     assert all(set(r) == expected for r in rows(50))
 
 
@@ -89,7 +89,7 @@ def test_demo_vocabulary_uses_the_parsed_screenplay(tmp_path, monkeypatch):
         "characters": ["Ben", "Barbara"], "locations": ["Farmhouse", "Cellar"],
         "props": ["Tyre Iron"], "scenes": [],
     }))
-    monkeypatch.setattr(synth, "VOCABULARY_CACHE", cache)
+    monkeypatch.setattr(synth, "load_vocabulary", lambda project_id="notld_1968": ProjectVocabulary(**json.loads(cache.read_text())))
 
     pv = synth.demo_vocabulary()
     assert isinstance(pv, ProjectVocabulary)
@@ -99,3 +99,8 @@ def test_demo_vocabulary_uses_the_parsed_screenplay(tmp_path, monkeypatch):
     # Scene ids stay synthetic: the archive spans many productions.
     assert len(pv.scenes) > 100
     assert pv.scenes[0].startswith("P01-")
+
+
+def test_synthetic_rows_tagged_as_archive():
+    row = next(generate_rows(VOCAB, 1, seed=0))
+    assert row["project_id"] == "archive"

@@ -81,7 +81,8 @@ def _check(field, value, allowed: list[str], where: str) -> None:
 
 
 def rows_from_response(
-    text: str, vocabulary: ProjectVocabulary, source_file: str
+    text: str, vocabulary: ProjectVocabulary, source_file: str,
+    project_id: str = "notld_1968",
 ) -> list[dict]:
     """Parse and validate the model's shot list into ClickHouse-ready rows."""
     try:
@@ -100,7 +101,7 @@ def rows_from_response(
         if not isinstance(shot, dict):
             raise ValueError(f"{where}: expected an object")
 
-        row = {"source_file": source_file}
+        row = {"source_file": source_file, "project_id": project_id}
         for field in MODEL_FIELDS:
             if field.name not in shot:
                 raise ValueError(f"{where}: missing field {field.name!r}")
@@ -131,6 +132,7 @@ def log_clip(
     client,
     model: str = DEFAULT_MODEL,
     source_file: str | None = None,
+    project_id: str = "notld_1968",
 ) -> list[dict]:
     """Log one clip of dailies from a gs:// object or a Files API URI.
 
@@ -155,4 +157,6 @@ def log_clip(
             "response_schema": shot_response_schema(vocabulary),
         },
     )
-    return rows_from_response(response.text, vocabulary, source_file or video_uri)
+    return rows_from_response(
+        response.text, vocabulary, source_file or video_uri, project_id=project_id
+    )

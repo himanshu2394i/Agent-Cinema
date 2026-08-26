@@ -82,6 +82,16 @@ def test_agent_instruction_scopes_queries_to_a_project():
     assert "project_id = 'my-film'" in text
 
 
+def test_agent_instruction_includes_clickable_clip_watch_links():
+    from shot_schema import agent_instruction
+
+    text = agent_instruction(
+        VOCAB, project_id="my-film", clip_base_url="http://127.0.0.1:8080"
+    )
+    assert "/watch?project=my-film&file=" in text
+    assert "markdown link" in text.lower() or "](http://127.0.0.1:8080/watch" in text
+
+
 def test_agent_instruction_lists_the_same_vocabulary_ingest_writes():
     from shot_schema import agent_instruction
 

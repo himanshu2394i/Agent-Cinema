@@ -50,7 +50,7 @@ def _plan_scene(scene: str, vocabulary: ProjectVocabulary, rng: random.Random) -
     }
 
 
-def demo_vocabulary() -> ProjectVocabulary:
+def demo_vocabulary(project_id: str = "notld_1968") -> ProjectVocabulary:
     """The archive's vocabulary: one screenplay's words, many productions' scenes.
 
     Characters, locations and props come from the parsed screenplay so the
@@ -62,7 +62,7 @@ def demo_vocabulary() -> ProjectVocabulary:
     run to a few thousand. Without that spread the table holds a hundred
     distinct setups and every specific filter returns nothing.
     """
-    base = load_vocabulary(VOCABULARY_CACHE)
+    base = load_vocabulary(project_id=project_id)
     return dataclasses.replace(base, scenes=[
         f"P{p:02d}-{n}{s}"
         for p in range(1, 41)
@@ -94,6 +94,7 @@ def generate_rows(
             start = round(rng.uniform(*SLATE_SECONDS), 1)
             yield {
                 "source_file": f"gs://dailies/A{clip // 999 + 1:03d}_C{clip % 999:04d}.mp4",
+                "project_id": "archive",
                 "scene": scene,
                 "take": takes[scene],
                 "start_seconds": start,

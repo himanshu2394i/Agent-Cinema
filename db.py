@@ -25,7 +25,7 @@ BATCH = 50_000
 
 # Same order as the DDL, derived from the same table, so a new field cannot
 # land in the wrong column.
-INSERT_COLUMNS = ["source_file", *[f.name for f in MODEL_FIELDS]]
+INSERT_COLUMNS = ["source_file", "project_id", *[f.name for f in MODEL_FIELDS]]
 
 DEMO_QUERIES = {
     "total rows": f"SELECT count() FROM {TABLE}",

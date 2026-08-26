@@ -27,6 +27,7 @@ from .synth import demo_vocabulary
 load_dotenv()
 
 PROJECT_ID = os.getenv("PROJECT_ID", "notld_1968")
+CLIP_BASE_URL = os.getenv("CLIP_BASE_URL", "http://127.0.0.1:8080")
 
 SCRIPTS = str(Path(sys.executable).parent)
 SERVER = (
@@ -62,7 +63,11 @@ root_agent = LlmAgent(
     name="dailies",
     model=os.getenv("AGENT_MODEL", "gemini-2.5-flash"),
     description="Finds shots in a footage archive from a plain-English description.",
-    instruction=agent_instruction(demo_vocabulary(PROJECT_ID), project_id=PROJECT_ID),
+    instruction=agent_instruction(
+        demo_vocabulary(PROJECT_ID),
+        project_id=PROJECT_ID,
+        clip_base_url=CLIP_BASE_URL,
+    ),
     tools=[clickhouse],
     generate_content_config=types.GenerateContentConfig(
         http_options=types.HttpOptions(

@@ -19,7 +19,7 @@ from typing import Iterator
 
 import dataclasses
 
-from .vocab import CRAFT_VOCAB, VOCABULARY_CACHE, ProjectVocabulary, load_vocabulary
+from vocab import CRAFT_VOCAB, VOCABULARY_CACHE, ProjectVocabulary, load_vocabulary
 
 TAKES_PER_VISIT = (1, 9)
 SHOT_SECONDS = (4.0, 95.0)

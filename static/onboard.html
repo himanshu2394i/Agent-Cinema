@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dailies Triage — New Project</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; color: #111; background: #f6f4ef; }
+    body { max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+    p.sub { color: #555; margin-top: 0; }
+    section { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 1rem 1.25rem; margin: 1rem 0; }
+    section h2 { font-size: 1rem; margin: 0 0 0.75rem; }
+    label { display: block; font-size: 0.85rem; margin-bottom: 0.25rem; }
+    input[type=text], input[type=file] { width: 100%; margin-bottom: 0.75rem; }
+    button { background: #1a1a1a; color: #fff; border: 0; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    pre { background: #f0ede6; padding: 0.75rem; overflow: auto; font-size: 0.8rem; border-radius: 4px; }
+    .error { color: #b00020; font-size: 0.9rem; }
+    .ok { color: #0a6b0a; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <h1>New production</h1>
+  <p class="sub">Screenplay → vocabulary → clips → ask questions.</p>
+
+  <section id="step-create">
+    <h2>1. Create project</h2>
+    <label>Project id (slug)</label>
+    <input id="project-id" type="text" placeholder="my-film-2026">
+    <label>Display name</label>
+    <input id="project-name" type="text" placeholder="My Film">
+    <button id="btn-create">Create</button>
+    <p id="create-msg"></p>
+  </section>
+
+  <section id="step-screenplay" hidden>
+    <h2>2. Upload screenplay (PDF)</h2>
+    <input id="screenplay-file" type="file" accept=".pdf">
+    <button id="btn-screenplay">Parse screenplay</button>
+    <p id="screenplay-msg"></p>
+    <pre id="vocab-preview" hidden></pre>
+  </section>
+
+  <section id="step-clips" hidden>
+    <h2>3. Upload clips (.mp4)</h2>
+    <input id="clips-file" type="file" accept=".mp4" multiple>
+    <button id="btn-clips">Upload clips</button>
+    <p id="clips-msg"></p>
+  </section>
+
+  <section id="step-chat" hidden>
+    <h2>4. Open agent</h2>
+    <p>Clips are on disk. Run ingest locally, then chat:</p>
+    <pre id="ingest-cmd"></pre>
+    <p id="watch-hint" class="ok"></p>
+    <p><a id="agent-link" href="/" target="_blank">Open ADK agent</a></p>
+  </section>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let projectId = '';
+
+    async function api(path, opts = {}) {
+      const res = await fetch(path, opts);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.detail || res.statusText);
+      return body;
+    }
+
+    $('btn-create').onclick = async () => {
+      projectId = $('project-id').value.trim();
+      try {
+        await api('/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: projectId, name: $('project-name').value.trim() || projectId }),
+        });
+        $('create-msg').className = 'ok';
+        $('create-msg').textContent = `Created ${projectId}`;
+        $('step-screenplay').hidden = false;
+      } catch (e) {
+        $('create-msg').className = 'error';
+        $('create-msg').textContent = e.message;
+      }
+    };
+
+    $('btn-screenplay').onclick = async () => {
+      const file = $('screenplay-file').files[0];
+      if (!file) return;
+      const fd = new FormData();
+      fd.append('file', file);
+      try {
+        const vocab = await api(`/projects/${projectId}/screenplay`, { method: 'POST', body: fd });
+        $('screenplay-msg').className = 'ok';
+        $('screenplay-msg').textContent = 'Vocabulary ready';
+        $('vocab-preview').hidden = false;
+        $('vocab-preview').textContent = JSON.stringify(vocab, null, 2);
+        $('step-clips').hidden = false;
+      } catch (e) {
+        $('screenplay-msg').className = 'error';
+        $('screenplay-msg').textContent = e.message;
+      }
+    };
+
+    $('btn-clips').onclick = async () => {
+      const files = $('clips-file').files;
+      if (!files.length) return;
+      try {
+        for (const file of files) {
+          const fd = new FormData();
+          fd.append('file', file);
+          await api(`/projects/${projectId}/clips`, { method: 'POST', body: fd });
+        }
+        $('clips-msg').className = 'ok';
+        $('clips-msg').textContent = `Uploaded ${files.length} clip(s)`;
+        $('step-chat').hidden = false;
+        $('ingest-cmd').textContent =
+          `.venv/Scripts/python.exe ingest_all.py assets/projects/${projectId}/clips --project ${projectId}`;
+        $('agent-link').href = `/?project_id=${projectId}`;
+        $('watch-hint').textContent =
+          `Keep uvicorn on :8080 so agent answers can open /watch?project=${projectId}&file=A001_C0007.mp4`;
+      } catch (e) {
+        $('clips-msg').className = 'error';
+        $('clips-msg').textContent = e.message;
+      }
+    };
+  </script>
+</body>
+</html>

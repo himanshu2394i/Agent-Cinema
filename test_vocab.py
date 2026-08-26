@@ -85,5 +85,5 @@ def test_load_vocabulary_reads_a_cached_parse(tmp_path):
 def test_load_vocabulary_errors_clearly_when_missing(tmp_path):
     from vocab import load_vocabulary
 
-    with pytest.raises(FileNotFoundError, match="smoke.py"):
+    with pytest.raises(FileNotFoundError, match="Upload a screenplay"):
         load_vocabulary(tmp_path / "nope.json")
