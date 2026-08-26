@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 from pathlib import Path
 from typing import Protocol
 
@@ -22,7 +23,10 @@ from projects import (
 
 log = logging.getLogger(__name__)
 
-DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
+DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
+DRIVE_SCOPES = [DRIVE_SCOPE]
+DAILIES_ROOT = Path("assets/dailies")
+FOLDER_MIME = "application/vnd.google-apps.folder"
 
 
 class DriveClient(Protocol):
@@ -31,6 +35,49 @@ class DriveClient(Protocol):
 
     def download(self, file_id: str, dest: Path) -> None:
         """Write the Drive file bytes to dest."""
+
+    def find_child_folder(self, parent_id: str, name: str) -> str | None:
+        ...
+
+    def create_folder(self, parent_id: str, name: str) -> str:
+        ...
+
+    def upload(self, path: Path, folder_id: str) -> None:
+        ...
+
+
+def stage_local_dailies(
+    folder_name: str, sources: list[Path], root: Path | None = None
+) -> Path:
+    """Copy safe .mp4s into assets/dailies/{folder_name}/ (or a test root)."""
+    dest = (root if root is not None else DAILIES_ROOT) / folder_name
+    dest.mkdir(parents=True, exist_ok=True)
+    for src in sources:
+        name = _safe_clip_name(src.name)
+        if name is None or not src.is_file():
+            continue
+        shutil.copy2(src, dest / name)
+    return dest
+
+
+def ensure_project_folder(drive: DriveClient, parent_id: str, name: str) -> str:
+    existing = drive.find_child_folder(parent_id, name)
+    if existing:
+        return existing
+    return drive.create_folder(parent_id, name)
+
+
+def push_clips(drive: DriveClient, folder_id: str, paths: list[Path]) -> list[str]:
+    existing = {item.get("name") for item in drive.list_mp4s(folder_id)}
+    uploaded: list[str] = []
+    for path in paths:
+        name = _safe_clip_name(path.name)
+        if name is None or name in existing:
+            continue
+        drive.upload(path, folder_id)
+        uploaded.append(name)
+        existing.add(name)
+    return uploaded
 
 
 def _safe_clip_name(name: str) -> str | None:
@@ -97,7 +144,7 @@ def _load_oauth_token():
     path = Path(os.getenv("GOOGLE_DRIVE_TOKEN", ".adk/drive-token.json"))
     if not path.is_file():
         return None
-    creds = Credentials.from_authorized_user_file(str(path), [DRIVE_SCOPE])
+    creds = Credentials.from_authorized_user_file(str(path), DRIVE_SCOPES)
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
         path.write_text(creds.to_json())
@@ -121,8 +168,8 @@ def login() -> None:
             f"OAuth client JSON not found at {client_path}. "
             "Create a Desktop OAuth client in GCP and download it there."
         )
-    flow = InstalledAppFlow.from_client_secrets_file(str(client_path), [DRIVE_SCOPE])
-    creds = flow.run_local_server(port=0)
+    flow = InstalledAppFlow.from_client_secrets_file(str(client_path), DRIVE_SCOPES)
+    creds = flow.run_local_server(port=0, prompt="consent")
     token_path = Path(os.getenv("GOOGLE_DRIVE_TOKEN", ".adk/drive-token.json"))
     token_path.parent.mkdir(parents=True, exist_ok=True)
     token_path.write_text(creds.to_json())
@@ -149,7 +196,7 @@ def try_drive_client() -> DriveClient | None:
     )
     if creds_path and Path(creds_path).is_file():
         credentials = service_account.Credentials.from_service_account_file(
-            creds_path, scopes=[DRIVE_SCOPE]
+            creds_path, scopes=DRIVE_SCOPES
         )
     if credentials is None:
         try:
@@ -159,7 +206,7 @@ def try_drive_client() -> DriveClient | None:
             credentials = None
     if credentials is None:
         try:
-            credentials, _ = google_auth_default(scopes=[DRIVE_SCOPE])
+            credentials, _ = google_auth_default(scopes=DRIVE_SCOPES)
         except Exception:
             log.debug("No Drive credentials (OAuth token, JSON key, or ADC)")
             return None
@@ -206,11 +253,76 @@ class GoogleDriveClient:
             while not done:
                 _, done = downloader.next_chunk()
 
+    def find_child_folder(self, parent_id: str, name: str) -> str | None:
+        query = (
+            f"'{parent_id}' in parents and name = '{name}' "
+            f"and mimeType = '{FOLDER_MIME}' and trashed = false"
+        )
+        response = (
+            self.service.files()
+            .list(
+                q=query,
+                fields="files(id, name)",
+                pageSize=10,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            )
+            .execute()
+        )
+        files = response.get("files") or []
+        return files[0]["id"] if files else None
+
+    def create_folder(self, parent_id: str, name: str) -> str:
+        body = {"name": name, "mimeType": FOLDER_MIME, "parents": [parent_id]}
+        created = (
+            self.service.files()
+            .create(body=body, fields="id", supportsAllDrives=True)
+            .execute()
+        )
+        return created["id"]
+
+    def upload(self, path: Path, folder_id: str) -> None:
+        from googleapiclient.http import MediaFileUpload
+
+        media = MediaFileUpload(str(path), mimetype="video/mp4", resumable=True)
+        body = {"name": path.name, "parents": [folder_id]}
+        self.service.files().create(
+            body=body, media_body=media, fields="id", supportsAllDrives=True
+        ).execute()
+
 
 if __name__ == "__main__":
     import sys
 
-    if sys.argv[1:] == ["login"]:
+    args = sys.argv[1:]
+    if args == ["login"]:
         login()
+    elif args[:1] == ["bootstrap"] and len(args) >= 2:
+        from projects import clips_dir, create_project, set_drive_folder
+
+        folder_name = args[1]
+        parent = os.getenv("DRIVE_DAILIES_FOLDER_ID", "")
+        if not parent:
+            raise SystemExit("Set DRIVE_DAILIES_FOLDER_ID to the parent dailies folder id")
+        source_dir = Path(args[2]) if len(args) > 2 else Path("assets/clips")
+        sources = sorted(source_dir.glob("*.mp4"))
+        local = stage_local_dailies(folder_name, sources)
+        slug = folder_name.lower()
+        try:
+            create_project(slug, folder_name)
+        except FileExistsError:
+            pass
+        for clip in local.glob("*.mp4"):
+            shutil.copy2(clip, clips_dir(slug) / clip.name)
+        drive = try_drive_client()
+        if drive is None:
+            raise SystemExit("Run: python drive_sync.py login  (must allow Drive edit)")
+        child = ensure_project_folder(drive, parent, folder_name)
+        set_drive_folder(slug, child)
+        uploaded = push_clips(drive, child, sorted(local.glob("*.mp4")))
+        print(f"local={local} drive_folder={child} uploaded={len(uploaded)}")
     else:
-        raise SystemExit("Usage: python drive_sync.py login")
+        raise SystemExit(
+            "Usage: python drive_sync.py login"
+            " | python drive_sync.py bootstrap Project1 [assets/clips]"
+        )

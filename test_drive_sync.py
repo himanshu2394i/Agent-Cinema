@@ -148,3 +148,55 @@ def test_try_drive_client_uses_saved_oauth_token(tmp_path, monkeypatch):
         lambda *args, **kwargs: object(),
     )
     assert drive_sync.try_drive_client() is not None
+
+
+def test_stage_local_dailies_copies_mp4s_into_project_folder(tmp_path):
+    from drive_sync import stage_local_dailies
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "A001_C0001.mp4").write_bytes(b"one")
+    (src / "notes.txt").write_text("nope")
+    dest = stage_local_dailies("Project1", [src / "A001_C0001.mp4", src / "notes.txt"], root=tmp_path / "dailies")
+    assert dest == tmp_path / "dailies" / "Project1"
+    assert (dest / "A001_C0001.mp4").read_bytes() == b"one"
+    assert not (dest / "notes.txt").exists()
+
+
+def test_ensure_child_folder_reuses_existing_and_uploads_new_clips():
+    from drive_sync import ensure_project_folder, push_clips
+    from pathlib import Path
+
+    class FakeWriteDrive:
+        def __init__(self):
+            self.folders = {("parent", "Project1"): "child-1"}
+            self.uploads: list[tuple[str, str]] = []
+            self.existing = [{"id": "e1", "name": "A001_C0001.mp4"}]
+
+        def find_child_folder(self, parent_id: str, name: str) -> str | None:
+            return self.folders.get((parent_id, name))
+
+        def create_folder(self, parent_id: str, name: str) -> str:
+            folder_id = f"new-{name}"
+            self.folders[(parent_id, name)] = folder_id
+            return folder_id
+
+        def list_mp4s(self, folder_id: str) -> list[dict]:
+            return list(self.existing) + [
+                {"id": "u", "name": name} for fid, name in self.uploads if fid == folder_id
+            ]
+
+        def upload(self, path: Path, folder_id: str) -> None:
+            self.uploads.append((folder_id, path.name))
+
+    fake = FakeWriteDrive()
+    folder_id = ensure_project_folder(fake, "parent", "Project1")
+    assert folder_id == "child-1"
+    folder_id = ensure_project_folder(fake, "parent", "Project2")
+    assert folder_id == "new-Project2"
+
+    clip_existing = Path("A001_C0001.mp4")
+    clip_new = Path("A001_C0002.mp4")
+    uploaded = push_clips(fake, "child-1", [clip_existing, clip_new])
+    assert uploaded == ["A001_C0002.mp4"]
+    assert fake.uploads == [("child-1", "A001_C0002.mp4")]

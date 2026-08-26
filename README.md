@@ -139,9 +139,16 @@ Service-account JSON keys are also blocked by org policy.
    → **Create credentials** → **OAuth client ID** → type **Desktop app**
    (not the existing Web client). Download JSON as `client_secret.json`
    in the repo root (gitignored).
-5. Login once:
+5. Add scope `https://www.googleapis.com/auth/drive` (See, edit, create,
+   and delete all Google Drive files) — needed to create `Project1` folders.
+6. Login / re-login (must allow edit, not view-only):
 
         .venv/Scripts/python.exe drive_sync.py login
+
+   Then seed a movie folder under the parent dailies Drive folder:
+
+        $env:DRIVE_DAILIES_FOLDER_ID="1nymloBR2S7nuELOyzbaYgi3Y3onOhxXY"
+        .venv/Scripts/python.exe drive_sync.py bootstrap Project1
 
 Keep `uvicorn projects_api` running — it polls every 2 minutes. Paste the
 folder URL in `/onboard`. Or:
