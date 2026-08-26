@@ -1,6 +1,7 @@
 """End-to-end smoke test: screenplay -> vocabulary -> clip -> validated rows.
 
     python smoke.py assets/notld_1968_screenplay.pdf assets/sintel_trailer.mp4
+    python smoke.py assets/notld_1968_screenplay.pdf assets/clips/A001_C0001.mp4 --project notld_1968
 
 This is the whole ingest half in one run, ending with the shots inserted into
 ClickHouse so the agent can answer questions about the clip. Re-running
@@ -28,8 +29,31 @@ from vocab import VOCABULARY_CACHE, ProjectVocabulary, load_vocabulary
 CACHE = VOCABULARY_CACHE
 
 
-def vocabulary_for(pdf: Path, client) -> ProjectVocabulary:
-    if CACHE.exists():
+def parse_args(argv: list[str]) -> tuple[Path, Path, str] | None:
+    """Return (pdf, video, project_id) or None if usage is wrong."""
+    args = list(argv)
+    project_id = "notld_1968"
+    if "--project" in args:
+        idx = args.index("--project")
+        if idx + 1 >= len(args):
+            return None
+        project_id = args[idx + 1]
+        args = args[:idx] + args[idx + 2:]
+    if len(args) != 2:
+        return None
+    return Path(args[0]), Path(args[1]), project_id
+
+
+def vocabulary_for(pdf: Path, client, project_id: str = "notld_1968") -> ProjectVocabulary:
+    # Prefer a per-project cache when present; fall back to the legacy path.
+    try:
+        cached = load_vocabulary(project_id=project_id)
+        print(f"vocabulary: cached (project {project_id})")
+        return cached
+    except FileNotFoundError:
+        pass
+
+    if project_id == "notld_1968" and CACHE.exists():
         print(f"vocabulary: cached ({CACHE})")
         return load_vocabulary(CACHE)
 
@@ -48,25 +72,28 @@ def upload(video: Path, client):
     return uri
 
 
-def main() -> int:
-    if len(sys.argv) != 3:
+def main(argv: list[str] | None = None) -> int:
+    parsed = parse_args(argv if argv is not None else sys.argv[1:])
+    if parsed is None:
         print(__doc__)
         return 2
 
+    pdf, video, project_id = parsed
     load_dotenv()
     client = genai.Client()
-    pdf, video = Path(sys.argv[1]), Path(sys.argv[2])
 
-    vocabulary = vocabulary_for(pdf, client)
+    vocabulary = vocabulary_for(pdf, client, project_id=project_id)
     for name in ("characters", "locations", "props", "scenes"):
         values = getattr(vocabulary, name)
         print(f"  {name:11} {len(values):4}  {', '.join(values[:6])}")
 
     uri = upload(video, client)
 
-    print("logging shots ...")
+    print(f"logging shots (project_id={project_id}) ...")
     start = time.perf_counter()
-    rows = log_clip(uri, vocabulary, client, source_file=video.name)
+    rows = log_clip(
+        uri, vocabulary, client, source_file=video.name, project_id=project_id
+    )
     print(f"  {len(rows)} shots in {time.perf_counter() - start:.0f}s\n")
 
     written = replace_clip(connect(), rows)

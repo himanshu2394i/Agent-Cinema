@@ -22,13 +22,16 @@ from ingest import log_clip, upload
 from vocab import load_vocabulary
 
 
-def upload_and_log(video: Path, vocabulary, client) -> list[dict]:
+def upload_and_log(video: Path, vocabulary, client, project_id: str) -> list[dict]:
     """The real per-clip pipeline: upload to the Files API, then log_clip."""
-    return log_clip(upload(video, client), vocabulary, client, source_file=video.name)
+    return log_clip(
+        upload(video, client), vocabulary, client,
+        source_file=video.name, project_id=project_id,
+    )
 
 
 def run_batch(videos, vocabulary, client, db, log_clip, replace_clip, logged_sources,
-              force=False, log=print) -> tuple[int, list[str], list[str]]:
+              force=False, project_id="notld_1968", log=print) -> tuple[int, list[str], list[str]]:
     """Log every clip in `videos`, one at a time.
 
     A clip whose name is already logged in ClickHouse is skipped, not
@@ -69,7 +72,12 @@ def exit_code(failed: list[str]) -> int:
 def main() -> int:
     args = sys.argv[1:]
     force = "--force" in args
-    paths = [a for a in args if a != "--force"]
+    project_id = "notld_1968"
+    if "--project" in args:
+        idx = args.index("--project")
+        project_id = args[idx + 1]
+        args = args[:idx] + args[idx + 2:]
+    paths = [a for a in args if a not in ("--force",)]
     if len(paths) != 1:
         print(__doc__)
         return 2
@@ -77,7 +85,7 @@ def main() -> int:
     load_dotenv()
     client = genai.Client()
     db = connect()
-    vocabulary = load_vocabulary()
+    vocabulary = load_vocabulary(project_id=project_id)
 
     videos = sorted(Path(paths[0]).glob("*.mp4"))
     if not videos:
@@ -86,8 +94,9 @@ def main() -> int:
 
     total, failed, skipped = run_batch(
         videos, vocabulary, client, db,
-        log_clip=upload_and_log, replace_clip=replace_clip,
-        logged_sources=logged_sources, force=force,
+        log_clip=lambda v, voc, cli: upload_and_log(v, voc, cli, project_id),
+        replace_clip=replace_clip,
+        logged_sources=logged_sources, force=force, project_id=project_id,
     )
 
     ingested = len(videos) - len(failed) - len(skipped)

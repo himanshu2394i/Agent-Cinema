@@ -75,6 +75,23 @@ def test_ddl_is_a_mergetree_ordered_for_the_common_query():
     assert ddl.startswith("CREATE TABLE IF NOT EXISTS shots")
 
 
+def test_agent_instruction_scopes_queries_to_a_project():
+    from shot_schema import agent_instruction
+
+    text = agent_instruction(VOCAB, project_id="my-film")
+    assert "project_id = 'my-film'" in text
+
+
+def test_agent_instruction_includes_clickable_clip_watch_links():
+    from shot_schema import agent_instruction
+
+    text = agent_instruction(
+        VOCAB, project_id="my-film", clip_base_url="http://127.0.0.1:8080"
+    )
+    assert "/watch?project=my-film&file=" in text
+    assert "markdown link" in text.lower() or "](http://127.0.0.1:8080/watch" in text
+
+
 def test_agent_instruction_lists_the_same_vocabulary_ingest_writes():
     from shot_schema import agent_instruction
 
@@ -86,6 +103,9 @@ def test_agent_instruction_lists_the_same_vocabulary_ingest_writes():
     assert "action: String, free text" in text
     # The empty-result protocol is the whole point of the agent.
     assert "ILIKE" in text and "no footage" in text
+    # Query guardrails from the ClickHouse hackathon build session.
+    assert "max_execution_time" in text
+    assert "SELECT only" in text
 
 
 def test_agent_instruction_explains_the_two_populations():
