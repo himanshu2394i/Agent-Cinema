@@ -127,12 +127,15 @@ your project slug, and run `adk web`.
 
 ### Google Drive folder (ongoing dailies)
 
-Enable the Drive API, create a service account JSON, and **share the folder**
-with that account’s `client_email`. Set `GOOGLE_DRIVE_CREDENTIALS` (or
-`GOOGLE_APPLICATION_CREDENTIALS`) and keep `uvicorn projects_api` running —
-it polls every 2 minutes (`DRIVE_SYNC_INTERVAL_SECONDS`) and copies new
-`.mp4` files into `assets/projects/{id}/clips/`. Paste the folder URL in the
-onboarding wizard, or:
+GCP often blocks service-account JSON keys
+(`iam.disableServiceAccountKeyCreation`). For the hackathon, log in as yourself:
+
+    gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/drive.readonly
+
+Keep `uvicorn projects_api` running — it polls every 2 minutes
+(`DRIVE_SYNC_INTERVAL_SECONDS`) and copies new `.mp4` files into
+`assets/projects/{id}/clips/`. Paste the folder URL in the onboarding wizard
+(use a folder your Google account can already open). Or:
 
     curl -X POST http://127.0.0.1:8080/projects/my-film/drive -H "Content-Type: application/json" -d "{\"folder\":\"https://drive.google.com/drive/folders/FILE_ID\"}"
 

@@ -91,11 +91,14 @@ def sync_all_projects(drive: DriveClient | None = None) -> list[dict]:
 
 
 def try_drive_client() -> DriveClient | None:
-    """Build the real Drive client, or None if credentials are missing."""
-    creds_path = os.getenv("GOOGLE_DRIVE_CREDENTIALS") or os.getenv(
-        "GOOGLE_APPLICATION_CREDENTIALS"
-    )
+    """Build the real Drive client, or None if credentials are missing.
+
+    Prefers a service-account JSON if present. If org policy blocks key
+    creation, falls back to Application Default Credentials (gcloud user login
+    with the Drive readonly scope).
+    """
     try:
+        from google.auth import default as google_auth_default
         from google.oauth2 import service_account
         from googleapiclient.discovery import build
         from googleapiclient.http import MediaIoBaseDownload
@@ -103,12 +106,23 @@ def try_drive_client() -> DriveClient | None:
         log.debug("google-api-python-client not installed; skipping Drive sync")
         return None
 
-    if not creds_path or not Path(creds_path).is_file():
-        return None
-
-    credentials = service_account.Credentials.from_service_account_file(
-        creds_path, scopes=[DRIVE_SCOPE]
+    credentials = None
+    creds_path = os.getenv("GOOGLE_DRIVE_CREDENTIALS") or os.getenv(
+        "GOOGLE_APPLICATION_CREDENTIALS"
     )
+    if creds_path and Path(creds_path).is_file():
+        credentials = service_account.Credentials.from_service_account_file(
+            creds_path, scopes=[DRIVE_SCOPE]
+        )
+    else:
+        try:
+            credentials, _ = google_auth_default(scopes=[DRIVE_SCOPE])
+        except Exception:
+            log.debug("No Drive credentials (JSON key or gcloud ADC)")
+            return None
+
+    if credentials is None:
+        return None
     service = build("drive", "v3", credentials=credentials, cache_discovery=False)
     return GoogleDriveClient(service, MediaIoBaseDownload)
 

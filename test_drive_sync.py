@@ -98,3 +98,24 @@ def test_sync_all_projects_only_those_with_folder(tmp_path, monkeypatch):
     results = sync_all_projects(drive=fake)
     assert [r["project_id"] for r in results] == ["linked"]
     assert results[0]["downloaded"] == ["A001_C0002.mp4"]
+
+
+def test_try_drive_client_uses_adc_when_no_json_key(monkeypatch):
+    import drive_sync
+
+    monkeypatch.delenv("GOOGLE_DRIVE_CREDENTIALS", raising=False)
+    monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
+
+    class FakeCreds:
+        pass
+
+    monkeypatch.setattr(
+        "google.auth.default",
+        lambda scopes=None: (FakeCreds(), "devpost-506321"),
+    )
+    monkeypatch.setattr(
+        "googleapiclient.discovery.build",
+        lambda *args, **kwargs: object(),
+    )
+    client = drive_sync.try_drive_client()
+    assert client is not None
