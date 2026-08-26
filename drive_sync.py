@@ -19,6 +19,7 @@ from projects import (
     load_manifest,
     parse_folder_id,
     project_dir,
+    set_drive_folder,
 )
 
 log = logging.getLogger(__name__)
@@ -65,6 +66,26 @@ def ensure_project_folder(drive: DriveClient, parent_id: str, name: str) -> str:
     if existing:
         return existing
     return drive.create_folder(parent_id, name)
+
+
+def provision_drive_project(
+    project_id: str,
+    folder_name: str,
+    drive: DriveClient | None = None,
+    parent_id: str | None = None,
+) -> str | None:
+    """Create assets/dailies/{name} and a matching Drive folder under the parent."""
+    parent = parent_id or os.getenv("DRIVE_DAILIES_FOLDER_ID", "").strip()
+    if not parent:
+        return None
+    client = drive if drive is not None else try_drive_client()
+    if client is None:
+        DAILIES_ROOT.joinpath(folder_name).mkdir(parents=True, exist_ok=True)
+        return None
+    DAILIES_ROOT.joinpath(folder_name).mkdir(parents=True, exist_ok=True)
+    child = ensure_project_folder(client, parent, folder_name)
+    set_drive_folder(project_id, child)
+    return child
 
 
 def push_clips(drive: DriveClient, folder_id: str, paths: list[Path]) -> list[str]:

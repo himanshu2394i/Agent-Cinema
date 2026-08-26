@@ -27,9 +27,9 @@
   <section id="step-create">
     <h2>1. Create project</h2>
     <label>Project id (slug)</label>
-    <input id="project-id" type="text" placeholder="my-film-2026">
-    <label>Display name</label>
-    <input id="project-name" type="text" placeholder="My Film">
+    <input id="project-id" type="text" placeholder="project2">
+    <label>Display name (Drive folder name under dailies)</label>
+    <input id="project-name" type="text" placeholder="Project2">
     <button id="btn-create">Create</button>
     <p id="create-msg"></p>
   </section>
@@ -44,7 +44,7 @@
 
   <section id="step-clips" hidden>
     <h2>3. Clips — keep adding as the shoot continues</h2>
-    <p class="sub">Upload here, or paste a Drive folder. While this API is running we poll Drive every 2 minutes for new .mp4 files.</p>
+    <p class="sub">Drop new .mp4s into this movie’s Drive folder (created at step 1). We poll every 2 minutes. You can still paste a folder or upload here.</p>
     <label>Google Drive folder URL or id</label>
     <input id="drive-folder" type="text" placeholder="https://drive.google.com/drive/folders/...">
     <button id="btn-drive">Save folder + sync now</button>
@@ -77,13 +77,15 @@
     $('btn-create').onclick = async () => {
       projectId = $('project-id').value.trim();
       try {
-        await api('/projects', {
+        const created = await api('/projects', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: projectId, name: $('project-name').value.trim() || projectId }),
         });
         $('create-msg').className = 'ok';
-        $('create-msg').textContent = `Created ${projectId}`;
+        $('create-msg').textContent = created.drive_folder_id
+          ? `Created ${projectId} — Drive folder ready (drop mp4s there; we poll every 2 min)`
+          : `Created ${projectId}`;
         $('step-screenplay').hidden = false;
       } catch (e) {
         $('create-msg').className = 'error';

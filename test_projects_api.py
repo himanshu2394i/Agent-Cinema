@@ -26,6 +26,36 @@ def test_create_and_list_projects(client):
     assert listed[0]["id"] == "my-film"
 
 
+def test_create_project_provisions_drive_subfolder(client, tmp_path, monkeypatch):
+    import drive_sync
+    import projects
+
+    monkeypatch.setenv("DRIVE_DAILIES_FOLDER_ID", "parentidxxxx")
+    monkeypatch.setattr(drive_sync, "DAILIES_ROOT", tmp_path / "dailies")
+    monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
+
+    class FakeWriteDrive:
+        def find_child_folder(self, parent_id, name):
+            assert parent_id == "parentidxxxx"
+            assert name == "Project2"
+            return None
+
+        def create_folder(self, parent_id, name):
+            return "childfolder1"
+
+        def list_mp4s(self, folder_id):
+            return []
+
+        def upload(self, path, folder_id):
+            return None
+
+    monkeypatch.setattr(drive_sync, "try_drive_client", lambda: FakeWriteDrive())
+    response = client.post("/projects", json={"id": "project2", "name": "Project2"})
+    assert response.status_code == 201
+    assert response.json()["drive_folder_id"] == "childfolder1"
+    assert (tmp_path / "dailies" / "Project2").is_dir()
+
+
 def test_upload_screenplay_parses_vocabulary(client, monkeypatch):
     from vocab import ProjectVocabulary
 

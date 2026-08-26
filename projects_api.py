@@ -24,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from google import genai
 from pydantic import BaseModel, Field
 
-from drive_sync import sync_project, try_drive_client
+from drive_sync import provision_drive_project, sync_project, try_drive_client
 from parse_script import parse_screenplay
 from projects import (
     PROJECTS_ROOT,
@@ -113,7 +113,12 @@ def api_create_project(body: CreateProject) -> dict:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"id": body.id, "name": body.name}
+    drive_folder_id = None
+    try:
+        drive_folder_id = provision_drive_project(body.id, body.name)
+    except Exception:
+        log.exception("Drive folder provision failed for %s", body.id)
+    return {"id": body.id, "name": body.name, "drive_folder_id": drive_folder_id}
 
 
 @app.get("/projects")
