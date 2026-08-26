@@ -107,6 +107,38 @@ def test_missing_clip_returns_404(client):
     assert client.get("/projects/empty/media/missing.mp4").status_code == 404
 
 
+def test_upload_clip_pushes_to_drive_when_folder_linked(client, tmp_path, monkeypatch):
+    import projects
+
+    monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
+    client.post("/projects", json={"id": "demo", "name": "Demo"})
+    client.post(
+        "/projects/demo/drive",
+        json={"folder": "https://drive.google.com/drive/folders/1AbCDefGhIjk_lmnoPQRS"},
+    )
+    uploaded = []
+
+    class FakeDrive:
+        def upload(self, path, folder_id):
+            uploaded.append((path.name, folder_id))
+
+        def list_mp4s(self, folder_id):
+            return []
+
+        def download(self, file_id, dest):
+            dest.write_bytes(b"x")
+
+    monkeypatch.setattr("projects_api.try_drive_client", lambda: FakeDrive())
+    res = client.post(
+        "/projects/demo/clips",
+        files={"file": ("A001_C0009.mp4", b"data", "video/mp4")},
+    )
+    assert res.status_code == 200
+    assert res.json()["saved"] == "A001_C0009.mp4"
+    assert res.json()["uploaded_to_drive"] is True
+    assert uploaded == [("A001_C0009.mp4", "1AbCDefGhIjk_lmnoPQRS")]
+
+
 def test_attach_drive_folder_and_sync(client, tmp_path, monkeypatch):
     import drive_sync
     import projects

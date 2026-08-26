@@ -48,12 +48,15 @@
 
   <section id="step-clips" hidden>
     <h2>3. Clips — keep adding as the shoot continues</h2>
-    <p class="sub">Drop new .mp4s into this movie’s Drive folder (created at step 1). We poll every 2 minutes. You can still paste a folder or upload here.</p>
-    <label>Google Drive folder URL or id</label>
-    <input id="drive-folder" type="text" placeholder="https://drive.google.com/drive/folders/...">
-    <button id="btn-drive">Save folder + sync now</button>
-    <p id="drive-msg"></p>
-    <label>Or upload .mp4 files</label>
+    <p class="sub" id="clips-help">Drop mp4s into this movie’s Drive folder. We poll every 2 minutes. Uploading here also copies the file to that Drive folder.</p>
+    <p id="drive-linked" class="ok" hidden></p>
+    <div id="drive-manual">
+      <label>Google Drive folder URL (only if this project has no folder yet)</label>
+      <input id="drive-folder" type="text" placeholder="https://drive.google.com/drive/folders/...">
+      <button id="btn-drive">Save folder + sync now</button>
+      <p id="drive-msg"></p>
+    </div>
+    <label>Upload .mp4 clips</label>
     <input id="clips-file" type="file" accept=".mp4" multiple>
     <button id="btn-clips">Upload clips</button>
     <p id="clips-msg"></p>
@@ -63,6 +66,7 @@
     <h2>4. Open agent</h2>
     <p>Clips are on disk. Run ingest locally, then chat:</p>
     <pre id="ingest-cmd"></pre>
+    <p id="agent-hint" class="ok"></p>
     <p id="watch-hint" class="ok"></p>
     <p><a id="agent-link" href="/" target="_blank">Open ADK agent</a></p>
   </section>
@@ -100,6 +104,7 @@
           : `Created ${projectId}`;
         $('step-screenplay').hidden = false;
         $('step-clips').hidden = false;
+        showDriveState(created.drive_folder_id);
         if (created.drive_folder_id) showChatStep();
         history.replaceState({}, '', `/onboard?project=${encodeURIComponent(projectId)}`);
       } catch (e) {
@@ -126,11 +131,27 @@
       }
     };
 
+    function showDriveState(folderId) {
+      const linked = $('drive-linked');
+      $('drive-manual').hidden = Boolean(folderId);
+      linked.hidden = !folderId;
+      if (!folderId) return;
+      linked.textContent = 'Drive folder linked — drop mp4s here: ';
+      const a = document.createElement('a');
+      a.href = `https://drive.google.com/drive/folders/${encodeURIComponent(folderId)}`;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = 'open in Drive';
+      linked.append(a);
+    }
+
     function showChatStep() {
       $('step-chat').hidden = false;
       $('ingest-cmd').textContent =
         `.venv/Scripts/python.exe ingest_all.py assets/projects/${projectId}/clips --project ${projectId}`;
-      $('agent-link').href = `/?project_id=${projectId}`;
+      $('agent-link').href = '/';
+      $('agent-hint').textContent =
+        `In the agent, type: use project ${projectId} — one adk web process serves every production, so this scopes the session without a restart.`;
       $('watch-hint').textContent =
         `Keep uvicorn on :8080 — Drive sync runs every 2 minutes. Watch links: /watch?project=${projectId}&file=A001_C0007.mp4`;
     }
@@ -146,6 +167,7 @@
         : `Resumed ${status.id}`;
       $('step-screenplay').hidden = false;
       $('step-clips').hidden = false;
+      showDriveState(status.drive_folder_id);
       if (status.has_vocabulary) {
         try {
           const vocab = await api(`/projects/${id}/vocabulary`);
@@ -192,11 +214,12 @@
       const folder = $('drive-folder').value.trim();
       if (!folder) return;
       try {
-        await api(`/projects/${projectId}/drive`, {
+        const linkedFolder = await api(`/projects/${projectId}/drive`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ folder }),
         });
+        showDriveState(linkedFolder.drive_folder_id);
         let extra = '';
         try {
           const synced = await api(`/projects/${projectId}/drive/sync`, { method: 'POST' });

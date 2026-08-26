@@ -46,7 +46,7 @@ def run_batch(videos, vocabulary, client, db, log_clip, replace_clip, logged_sou
     total = 0
     failed: list[str] = []
     skipped: list[str] = []
-    already_logged = set() if force else logged_sources(db)
+    already_logged = set() if force else logged_sources(db, project_id)
     for index, video in enumerate(videos, start=1):
         if video.name in already_logged:
             log(f"[{index}/{len(videos)}] {video.name} - already logged, skipping")

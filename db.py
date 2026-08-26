@@ -76,14 +76,22 @@ def insert_rows(client, rows) -> int:
     return len(rows)
 
 
-def logged_sources(client) -> set[str]:
-    """Distinct source_file values already in the table.
+def logged_sources(client, project_id: str) -> set[str]:
+    """Distinct source_file values already logged for one project.
 
     Lets a batch ingest skip clips it has already logged, so a re-run after
     a partial failure costs one API call per genuinely-missing clip instead
     of one per clip in the directory.
+
+    project_id is required, not defaulted: every camera names its first clip
+    A001_C0001.mp4, so source_file alone is not unique across productions.
+    Unscoped, this reports another movie's clips as already logged and the
+    new production can never be ingested at all.
     """
-    result = client.query(f"SELECT DISTINCT source_file FROM {TABLE}")
+    result = client.query(
+        f"SELECT DISTINCT source_file FROM {TABLE} WHERE project_id = %(pid)s",
+        parameters={"pid": project_id},
+    )
     return {row[0] for row in result.result_rows}
 
 
@@ -93,13 +101,17 @@ def replace_clip(client, rows) -> int:
     Without this a second smoke run silently doubles the shots for a file.
     """
     rows = list(rows)
-    sources = {row["source_file"] for row in rows}
-    for source in sources:
+    # Scoped by (source_file, project_id), not source_file alone. Camera roll
+    # names repeat across productions, so an unscoped DELETE here silently
+    # drops another movie's shots for the same filename.
+    sources = {(row["source_file"], row["project_id"]) for row in rows}
+    for source, project_id in sources:
         # Lightweight DELETE, waited out on every replica. ponytail: fine per
         # clip at ingest; batch into one DELETE ... IN if it ever runs hot.
         client.command(
-            f"DELETE FROM {TABLE} WHERE source_file = %(src)s",
-            parameters={"src": source},
+            f"DELETE FROM {TABLE} WHERE source_file = %(src)s"
+            " AND project_id = %(pid)s",
+            parameters={"src": source, "pid": project_id},
             settings={"lightweight_deletes_sync": 2},
         )
     return insert_rows(client, rows)

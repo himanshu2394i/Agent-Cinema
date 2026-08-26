@@ -23,7 +23,7 @@ def fake_replace_clip(db, rows):
     return len(rows)
 
 
-def no_sources_logged(db):
+def no_sources_logged(db, project_id):
     return set()
 
 
@@ -83,7 +83,7 @@ def test_an_already_logged_clip_is_skipped_and_does_not_call_log_clip():
         log_clip_calls.append(video.name)
         return [{"source_file": video.name}]
 
-    def logged_sources(db):
+    def logged_sources(db, project_id):
         return {"old.mp4"}
 
     total, failed, skipped = run_batch(
@@ -107,7 +107,7 @@ def test_a_clip_not_yet_logged_is_still_ingested():
         log_clip_calls.append(video.name)
         return [{"source_file": video.name}]
 
-    def logged_sources(db):
+    def logged_sources(db, project_id):
         return set()
 
     total, failed, skipped = run_batch(
@@ -129,7 +129,7 @@ def test_force_reingests_an_already_logged_clip():
         log_clip_calls.append(video.name)
         return [{"source_file": video.name}]
 
-    def logged_sources(db):
+    def logged_sources(db, project_id):
         return {"old.mp4"}
 
     total, failed, skipped = run_batch(
@@ -141,3 +141,28 @@ def test_force_reingests_an_already_logged_clip():
     assert log_clip_calls == ["old.mp4"]
     assert total == 1
     assert skipped == []
+
+
+def test_skip_check_is_asked_about_this_project_only():
+    """The bug this pins: A001_C0001.mp4 logged under another production
+    made every clip of a new production look already-logged, so the new
+    movie could never be ingested at all."""
+    asked = []
+
+    def logged_sources(db, project_id):
+        asked.append(project_id)
+        return {"A001_C0001.mp4"} if project_id == "notld_1968" else set()
+
+    def log_clip(video, vocabulary, client):
+        return [{"source_file": video.name}]
+
+    total, failed, skipped = run_batch(
+        [FakeVideo("A001_C0001.mp4")], vocabulary=None, client=None, db=None,
+        log_clip=log_clip, replace_clip=fake_replace_clip,
+        logged_sources=logged_sources, project_id="lailamajnu",
+        log=lambda *_: None,
+    )
+
+    assert asked == ["lailamajnu"]
+    assert skipped == []
+    assert total == 1

@@ -219,7 +219,14 @@ async def api_upload_clip(project_id: str, file: UploadFile = File(...)) -> dict
         raise HTTPException(status_code=400, detail="upload an mp4 clip")
     target = clips_dir(project_id) / Path(file.filename).name
     target.write_bytes(await file.read())
-    return {"saved": target.name}
+    pushed = False
+    folder_id = load_manifest(project_id).get("drive_folder_id")
+    if folder_id:
+        drive = try_drive_client()
+        if drive is not None:
+            drive.upload(target, folder_id)
+            pushed = True
+    return {"saved": target.name, "uploaded_to_drive": pushed}
 
 
 @app.get("/projects/{project_id}/media/{filename}")
