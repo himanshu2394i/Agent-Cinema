@@ -10,6 +10,9 @@ fastapi
 python-multipart
 uvicorn
 google-api-python-client
+# Only needed for the Vertex ingest path: Vertex has no Files API, so
+# clips reach it as gs:// objects. The Developer-key path needs none of this.
+google-cloud-storage
 google-auth
 google-auth-httplib2
 google-auth-oauthlib

@@ -54,6 +54,52 @@ describe the same detail the same way every time, and omit anything you
 cannot actually see rather than guessing at it."""
 
 
+def upload_to_gcs(
+    video: Path,
+    bucket: str,
+    storage_client=None,
+    project_id: str | None = None,
+) -> str:
+    """Put a clip in Cloud Storage and return its gs:// URI.
+
+    This is the only path that works on Vertex. Vertex has no Files API, so
+    `client.files.upload` raises there whatever the quota says - the Developer
+    client is not a smaller Vertex, it is a different backend.
+
+    Clips are namespaced by project because a bucket is as flat as the shots
+    table was: every camera names its first clip A001_C0001.mp4, and two
+    productions sharing a bucket would overwrite each other's footage.
+    """
+    if not bucket:
+        raise ValueError("no bucket configured; set GCS_INGEST_BUCKET")
+    if storage_client is None:
+        from google.cloud import storage
+
+        storage_client = storage.Client()
+    name = f"{project_id}/{video.name}" if project_id else video.name
+    blob = storage_client.bucket(bucket).blob(name)
+    blob.upload_from_filename(str(video), content_type=VIDEO_MIME)
+    return f"{GCS_PREFIX}{bucket}/{name}"
+
+
+def clip_uri(
+    video: Path,
+    client,
+    bucket: str | None = None,
+    storage_client=None,
+    project_id: str | None = None,
+) -> str:
+    """A URI log_clip accepts, via whichever backend is configured.
+
+    Bucket set -> Cloud Storage, which Vertex can read and which has no daily
+    cap. No bucket -> the Files API, which only the Developer client serves
+    and which the free tier caps at twenty requests a day.
+    """
+    if bucket:
+        return upload_to_gcs(video, bucket, storage_client, project_id)
+    return upload(video, client)
+
+
 def upload(video: Path, client) -> str:
     """Upload a clip via the Files API and wait for it to become usable.
 

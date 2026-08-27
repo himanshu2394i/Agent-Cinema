@@ -10,6 +10,7 @@ Pass --force to re-ingest everything anyway, e.g. after changing the logging
 prompt and wanting fresh results for clips that already succeeded.
 """
 
+import os
 import sys
 import time
 from pathlib import Path
@@ -18,14 +19,22 @@ from dotenv import load_dotenv
 from google import genai
 
 from db import connect, logged_sources, replace_clip
-from ingest import log_clip, upload
+from ingest import clip_uri, log_clip, upload  # noqa: F401  (upload kept for callers)
 from vocab import load_vocabulary
 
 
 def upload_and_log(video: Path, vocabulary, client, project_id: str) -> list[dict]:
-    """The real per-clip pipeline: upload to the Files API, then log_clip."""
+    """The real per-clip pipeline: get the clip a URI, then log_clip.
+
+    GCS_INGEST_BUCKET decides the backend. Set, and clips go to Cloud Storage
+    as gs:// objects, which is the only path Vertex can read and has no daily
+    cap. Unset, and it is the Files API on a Developer key - which works out
+    of the box but the free tier stops at twenty requests a day.
+    """
+    bucket = os.getenv("GCS_INGEST_BUCKET", "").strip()
     return log_clip(
-        upload(video, client), vocabulary, client,
+        clip_uri(video, client, bucket=bucket or None, project_id=project_id),
+        vocabulary, client,
         source_file=video.name, project_id=project_id,
     )
 
