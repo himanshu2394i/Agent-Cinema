@@ -269,7 +269,14 @@ def investigate_from_rows(
             item.get("start_clip") or 0,
         )
 
-    displayed = sorted(timeline, key=relevance)[:max_sequences]
+    # Relevance picks *which* sequences make the cut when there are more than
+    # there is room for; the story itself still reads front to back. Each item
+    # keeps its evidence_tier so weak matches can be flagged in place rather
+    # than hidden by being sorted to the bottom.
+    displayed = sorted(
+        sorted(timeline, key=relevance)[:max_sequences],
+        key=lambda item: item.get("start_clip") or 0,
+    )
     if keywords:
         anchor = min(timeline, key=lambda item: (
             -_keyword_hits(
@@ -289,6 +296,8 @@ def investigate_from_rows(
         "note": (
             "Sequences are consecutive camera clips (coverage order), not"
             " numbered screenplay scenes — real footage often has scene='unknown'."
+            " Sequences read in shooting order; evidence_tier on each says how"
+            " strongly it supports the question."
             " `after` is the next sequence by clip number, not by relevance."
             " evidence_tier: DIRECT_INTERACTION > CONTEXTUAL > METADATA_ONLY."
         ),

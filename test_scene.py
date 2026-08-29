@@ -108,7 +108,9 @@ def test_metadata_only_sequence_is_tiered_not_treated_as_interaction():
     by_id = {s["scene_id"]: s for s in report["sequences"]}
     assert by_id["C0004-C0004"]["evidence_tier"] == "METADATA_ONLY"
     assert by_id["C0049-C0049"]["evidence_tier"] == "DIRECT_INTERACTION"
-    assert report["sequences"][0]["scene_id"] == "C0049-C0049"
+    # Story order, not relevance order: the tier is what marks C0004 weak,
+    # not its position in the list.
+    assert report["sequences"][0]["scene_id"] == "C0004-C0004"
 
 
 def test_investigate_after_follows_timeline_for_event():
@@ -141,3 +143,32 @@ def test_chronological_coverage_lists_every_clip_in_order_with_gaps_named():
     # Clips with no footage in the archive are reported, not silently dropped.
     assert report["missing_clips"] == ["C0102", "C0104"]
     assert report["range"] == "C0101-C0104"
+
+
+def test_sequences_come_back_in_story_order_not_relevance_order():
+    """'Everything between X and Y' is a story, so it reads front to back.
+
+    Tier still decides what makes the cut when there are more sequences than
+    room, and stays on each item so the agent can flag weak evidence.
+    """
+    rows = [
+        # Metadata-only: the pair is tagged but the prose shows neither.
+        _row("A001_C0004.mp4", action="A motorcycle drives past two police officers"),
+        _row("A001_C0063.mp4", action="Laila cries as Qays sits beside her"),
+        _row("A001_C0100.mp4", action="Qays talks; Laila looks down"),
+    ]
+    report = investigate_from_rows(rows, characters=["Laila", "Qays"])
+    labels = [s["start_clip"] for s in report["sequences"]]
+    assert labels == sorted(labels), "sequences must read in shooting order"
+    tiers = {s["start_clip"]: s["evidence_tier"] for s in report["sequences"]}
+    assert tiers[4] == "METADATA_ONLY"
+    assert tiers[63] == "DIRECT_INTERACTION"
+
+
+def test_weak_evidence_is_dropped_first_when_there_is_no_room():
+    rows = [
+        _row("A001_C0004.mp4", action="A motorcycle drives past two police officers"),
+        _row("A001_C0063.mp4", action="Laila cries as Qays sits beside her"),
+    ]
+    report = investigate_from_rows(rows, characters=["Laila", "Qays"], max_sequences=1)
+    assert [s["start_clip"] for s in report["sequences"]] == [63]
