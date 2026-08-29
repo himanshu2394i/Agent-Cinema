@@ -24,9 +24,11 @@ from mcp import StdioServerParameters
 from .editorial_tools import (
     add_to_select_list,
     get_select_list,
+    inspect_clips,
     investigate_scene,
     rank_clips,
     reassess_last_ranking,
+    review_evidence,
     summarize_takes,
 )
 from .shot_schema import agent_instruction
@@ -136,6 +138,19 @@ def instruction_provider(ctx) -> str:
         f" quote scene_id, evidence_tier, emotional_arc, and confidence."
         f" `after` is chronological clip order. Do not invent numbered"
         f" screenplay scenes when footage scene is unknown."
+        f"\n\nInvestigate before you answer. Every tool call is recorded"
+        f" in an evidence ledger. For any story, timeline, or 'what happens"
+        f" after' question, call review_evidence before answering. If it"
+        f" returns sufficient=false and remaining_budget above zero, call"
+        f" the tool it names in recommended_action on missing_clips, then"
+        f" review again. If the budget is spent, answer with what the"
+        f" evidence establishes and say plainly which clips you could not"
+        f" check - never fill the gap by guessing."
+        f"\n\ninvestigate_scene only sees clips matching your filter, so"
+        f" its `after` can skip footage. When the question is what happens"
+        f" after a moment, answer from `immediately_after` (the literal next"
+        f" clips) and say plainly that `after` is only the next matching"
+        f" sequence. inspect_clips shows any other run of clips on demand."
     )
 
 
@@ -199,6 +214,8 @@ root_agent = LlmAgent(
         rank_clips,
         summarize_takes,
         investigate_scene,
+        inspect_clips,
+        review_evidence,
         reassess_last_ranking,
         add_to_select_list,
         get_select_list,

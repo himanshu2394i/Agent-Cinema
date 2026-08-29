@@ -1,6 +1,7 @@
 """Scene-level grouping of consecutive camera clips."""
 
 from dailies_agent.scene import (
+    chronological_coverage,
     clip_index,
     group_consecutive_clips,
     investigate_from_rows,
@@ -125,3 +126,18 @@ def test_investigate_after_follows_timeline_for_event():
 
 def test_neighbor_range_is_the_next_clip_numbers():
     assert neighbor_range(71, 3) == (72, 74)
+
+
+def test_chronological_coverage_lists_every_clip_in_order_with_gaps_named():
+    rows = [
+        _row("A001_C0103.mp4", characters=["Villagers"], action="A crowd disperses"),
+        _row("A001_C0101.mp4", action="Laila's Father releases Qays; Laila pulls him back"),
+    ]
+    report = chronological_coverage(rows, 101, 104, wanted_characters=["Qays", "Laila"])
+    # Literal coverage order, never relevance order.
+    assert [c["clip_label"] for c in report["clips"]] == ["C0101", "C0103"]
+    assert report["clips"][0]["evidence_tier"] == "DIRECT_INTERACTION"
+    assert report["clips"][1]["evidence_tier"] == "METADATA_ONLY"
+    # Clips with no footage in the archive are reported, not silently dropped.
+    assert report["missing_clips"] == ["C0102", "C0104"]
+    assert report["range"] == "C0101-C0104"

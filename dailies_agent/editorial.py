@@ -348,6 +348,7 @@ def fetch_matching_shots(
     criteria: SearchCriteria,
     *,
     source_file: str | None = None,
+    clip_numbers: list[int] | None = None,
     limit: int = 2000,
 ) -> list[dict[str, Any]]:
     """Load candidate shot rows from ClickHouse for ranking."""
@@ -357,6 +358,15 @@ def fetch_matching_shots(
     if source_file:
         clauses.append("source_file = %(source_file)s")
         params["source_file"] = source_file
+    if clip_numbers:
+        # Camera-roll prefix varies per shoot day, so match on the clip
+        # suffix rather than assuming A001.
+        likes = []
+        for position, number in enumerate(clip_numbers):
+            key = f"clip_{position}"
+            likes.append(f"source_file LIKE %({key})s")
+            params[key] = f"%%_C{int(number):04d}.mp4"
+        clauses.append(f"({' OR '.join(likes)})")
     sql = (
         f"SELECT source_file, take, characters, time_of_day, int_ext, location,"
         f" scene, shot_size, quality_flags, start_seconds, end_seconds,"

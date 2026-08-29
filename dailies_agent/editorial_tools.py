@@ -101,6 +101,22 @@ def rank_clips(
     }
     if tool_context is not None:
         tool_context.state["last_ranking"] = payload
+    from .investigation import clip_label
+
+    _note(
+        tool_context,
+        tool="rank_clips",
+        question=(
+            "Best clips for "
+            + (", ".join(criteria.characters + criteria.keywords) or "these criteria")
+        ),
+        clips_seen=[label for label in (clip_label(c["clip"]) for c in ranked) if label],
+        finding=(
+            f"{len(ranked)} ranked; top {ranked[0]['clip']} at {ranked[0]['score']}"
+            if ranked else "no clips matched"
+        ),
+        evidence_tier="DIRECT_INTERACTION" if ranked else "METADATA_ONLY",
+    )
     return payload
 
 
@@ -185,7 +201,7 @@ def investigate_scene(
     """
     from .db_connect import connect
     from .editorial import SearchCriteria, fetch_matching_shots
-    from .scene import investigate_from_rows
+    from .scene import chronological_coverage, investigate_from_rows
 
     words = list(keywords or [])
     criteria = SearchCriteria(
@@ -211,7 +227,79 @@ def investigate_scene(
         "time_of_day": time_of_day or [],
         "event": event,
     }
+    step = _scene_step(report, characters or [], event, words)
+    followup = step.get("pending_followup")
+    if followup:
+        # `after` skips whatever did not match the filter, so a claim about
+        # what happens immediately after would be unsupported. Fetch that
+        # footage here rather than hoping the model iterates - the same
+        # reason challenge_answer is computed instead of prompted.
+        first, last = int(followup[0]), int(followup[-1])
+        report["immediately_after"] = chronological_coverage(
+            fetch_matching_shots(
+                connect(),
+                _project(tool_context),
+                SearchCriteria(),
+                clip_numbers=list(range(first, last + 1)),
+                limit=2000,
+            ),
+            first,
+            last,
+            wanted_characters=characters or [],
+        )
+        report["note"] += (
+            " `immediately_after` is the literal next footage on the timeline;"
+            " `after` is only the next sequence that matched your filter."
+        )
+        step["clips_seen"] = list(step["clips_seen"]) + [
+            f"C{n:04d}" for n in range(first, last + 1)
+        ]
+        step.pop("pending_followup")
+    _note(tool_context, **step)
     return report
+
+
+
+def _scene_step(
+    report: dict[str, Any],
+    characters: list[str],
+    event: str | None,
+    keywords: list[str],
+) -> dict[str, Any]:
+    """Ledger entry for an investigate_scene call, with any footage it skipped.
+
+    `after` is the next *matching* sequence, so when it does not sit right
+    beside the anchor there is a stretch of footage nobody looked at. A
+    targeted question ('what happens after X') turns that stretch into a debt;
+    a broad listing does not, because it makes no claim about what follows.
+    """
+    from .scene import neighbor_range
+
+    anchor = report.get("anchor") or {}
+    after = report.get("after") or {}
+    seen = [
+        f"C{item['start_clip']:04d}"
+        for item in report.get("sequences") or []
+        if item.get("start_clip") is not None
+    ]
+    step: dict[str, Any] = {
+        "tool": "investigate_scene",
+        "question": event or f"What happens between {', '.join(characters) or 'these clips'}?",
+        "clips_seen": seen,
+        "finding": (
+            f"{report.get('sequence_count', 0)} sequences; anchor "
+            f"{anchor.get('scene_id', 'none')}, next match {after.get('scene_id', 'none')}."
+        ),
+        "evidence_tier": anchor.get("evidence_tier"),
+    }
+    end = anchor.get("end_clip")
+    start_of_next = after.get("start_clip")
+    targeted = bool(event or keywords)
+    if targeted and end is not None and start_of_next is not None:
+        if start_of_next > end + 1:
+            first, last = neighbor_range(int(end), 3)
+            step["pending_followup"] = [first, min(last, int(start_of_next) - 1)]
+    return step
 
 
 def _select_reason(item: dict[str, Any]) -> str:
@@ -272,3 +360,101 @@ def get_select_list(tool_context=None) -> dict[str, Any]:
             f"{item.get('selection_reason')}"
         )
     return {"select_list": items, "count": len(items), "display": lines}
+
+
+def _ledger(tool_context) -> list[dict[str, Any]]:
+    """This session's evidence ledger, created on first use."""
+    if tool_context is None:
+        return []
+    state = tool_context.state
+    ledger = state.get("investigation")
+    if not isinstance(ledger, list):
+        ledger = []
+        state["investigation"] = ledger
+    return ledger
+
+
+def _invocation(tool_context) -> str | None:
+    """Which user turn this step belongs to, so the budget is per question."""
+    return getattr(tool_context, "invocation_id", None)
+
+
+def _note(tool_context, **kwargs) -> None:
+    from .investigation import record
+
+    if tool_context is not None:
+        kwargs.setdefault("invocation", _invocation(tool_context))
+        record(_ledger(tool_context), **kwargs)
+
+
+def inspect_clips(
+    start_clip: int,
+    end_clip: int,
+    characters: list[str] | None = None,
+    tool_context=None,
+) -> dict[str, Any]:
+    """Look at what is literally on a run of camera clips, in shooting order.
+
+    Use this to check the footage a filtered search skipped — the clips
+    between one matching sequence and the next. This is the only tool that
+    answers 'what is actually on C0101 through C0108', because it does not
+    filter by character and does not rank by relevance.
+
+    Args:
+        start_clip: First clip number, e.g. 101 for A001_C0101.mp4.
+        end_clip: Last clip number, inclusive. Capped at 12 clips per call.
+        characters: Optional names, only used to tier each clip's evidence.
+
+    Returns:
+        clips in coverage order with actions, dialogue, and evidence_tier,
+        plus missing_clips for numbers with no ingested footage.
+    """
+    from .db_connect import connect
+    from .editorial import SearchCriteria, fetch_matching_shots
+    from .scene import chronological_coverage
+
+    start = max(1, int(start_clip))
+    end = max(start, min(int(end_clip), start + 11))
+    rows = fetch_matching_shots(
+        connect(),
+        _project(tool_context),
+        SearchCriteria(),
+        clip_numbers=list(range(start, end + 1)),
+        limit=2000,
+    )
+    report = chronological_coverage(
+        rows, start, end, wanted_characters=characters or []
+    )
+    report["project_id"] = _project(tool_context)
+    direct = [c["clip_label"] for c in report["clips"]
+              if c["evidence_tier"] == "DIRECT_INTERACTION"]
+    _note(
+        tool_context,
+        tool="inspect_clips",
+        question=f"What is on {report['range']}?",
+        clips_seen=[c["clip_label"] for c in report["clips"]] + report["missing_clips"],
+        finding=(
+            f"{report['clip_count']} clips with footage; "
+            f"{len(direct)} show the named characters directly."
+        ),
+        evidence_tier="DIRECT_INTERACTION" if direct else "METADATA_ONLY",
+    )
+    return report
+
+
+def review_evidence(tool_context=None) -> dict[str, Any]:
+    """Check whether the evidence gathered so far actually supports an answer.
+
+    Call this before answering any story, timeline, or 'everything between'
+    question. If `sufficient` is false and `remaining_budget` is above zero,
+    take `recommended_action` on `missing_clips` before you answer. If the
+    budget is spent, answer with what is established and say plainly what
+    could not be checked.
+
+    Returns:
+        sufficient, gap, missing_clips, recommended_action, remaining_budget,
+        and the steps taken so far.
+    """
+    from .investigation import review
+
+    return review(_ledger(tool_context), invocation=_invocation(tool_context))

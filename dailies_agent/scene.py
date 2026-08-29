@@ -293,3 +293,59 @@ def investigate_from_rows(
             " evidence_tier: DIRECT_INTERACTION > CONTEXTUAL > METADATA_ONLY."
         ),
     }
+
+
+def chronological_coverage(
+    rows: list[dict[str, Any]],
+    start_clip: int,
+    end_clip: int,
+    *,
+    wanted_characters: list[str] | None = None,
+) -> dict[str, Any]:
+    """Literal clip-by-clip coverage of a range, in shooting order.
+
+    Unlike `investigate_from_rows` this does no relevance ranking and no
+    grouping: it answers "what is actually on C0101 through C0108", which is
+    the question a filtered character search can never answer.
+    """
+    wanted = wanted_characters or []
+    by_file: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        index = clip_index(row["source_file"])
+        if index is None or not start_clip <= index <= end_clip:
+            continue
+        by_file.setdefault(row["source_file"], []).append(row)
+
+    clips = []
+    for source in sorted(by_file, key=lambda f: clip_index(f) or 0):
+        blob = _clip_blob(by_file[source])
+        prose = " ".join((blob.get("actions") or []) + (blob.get("dialogues") or []))
+        clips.append(
+            {
+                "clip": blob["clip"],
+                "clip_label": f"C{blob['index']:04d}",
+                "takes": blob["takes"],
+                "characters": blob["characters"],
+                "actions": blob["actions"],
+                "dialogue_summary": " | ".join(line[:120] for line in blob["dialogues"]),
+                "time_of_day": blob.get("time_of_day"),
+                "location": blob.get("location"),
+                "evidence_tier": interaction_tier(prose, wanted),
+            }
+        )
+
+    present = {c["clip_label"] for c in clips}
+    return {
+        "range": f"C{start_clip:04d}-C{end_clip:04d}",
+        "clips": clips,
+        "clip_count": len(clips),
+        "missing_clips": [
+            f"C{n:04d}" for n in range(start_clip, end_clip + 1)
+            if f"C{n:04d}" not in present
+        ],
+        "note": (
+            "Literal coverage order for the requested range - not relevance"
+            " ranked and not filtered by character. missing_clips have no"
+            " ingested footage in this project."
+        ),
+    }
