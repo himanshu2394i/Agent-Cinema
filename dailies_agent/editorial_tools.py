@@ -22,6 +22,25 @@ def _project(tool_context) -> str:
     )
 
 
+def _with_watch_urls(
+    clips: list[dict[str, Any]],
+    project_id: str,
+    clip_base_url: str | None = None,
+) -> list[dict[str, Any]]:
+    """Attach a ready-made playback link to each clip.
+
+    The model was building these by hand from a base URL in its prompt and
+    occasionally mistyped the host - and when it did, every link in that
+    answer was broken. Handing it a finished string removes the chance.
+    """
+    base = (clip_base_url or os.getenv("CLIP_BASE_URL", "http://127.0.0.1:8080")).rstrip("/")
+    for item in clips:
+        name = item.get("clip") or item.get("source_file")
+        if name:
+            item["watch_url"] = f"{base}/watch?project={project_id}&file={name}"
+    return clips
+
+
 def _criteria(
     characters: list[str] | None = None,
   time_of_day: list[str] | None = None,
@@ -95,7 +114,7 @@ def rank_clips(
             "shot_size": criteria.shot_size,
             "location": criteria.location,
         },
-        "clips": ranked,
+        "clips": _with_watch_urls(ranked, _project(tool_context)),
         "clip_count": len(ranked),
         "critique": critique,
     }
@@ -227,6 +246,13 @@ def investigate_scene(
         "time_of_day": time_of_day or [],
         "event": event,
     }
+    project = _project(tool_context)
+    base = os.getenv("CLIP_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+    for sequence in report.get("sequences") or []:
+        sequence["watch_urls"] = [
+            f"{base}/watch?project={project}&file={name}"
+            for name in sequence.get("clips") or []
+        ]
     step = _scene_step(report, characters or [], event, words)
     followup = step.get("pending_followup")
     if followup:
@@ -247,6 +273,7 @@ def investigate_scene(
             last,
             wanted_characters=characters or [],
         )
+        _with_watch_urls(report["immediately_after"]["clips"], project)
         report["note"] += (
             " `immediately_after` is the literal next footage on the timeline;"
             " `after` is only the next sequence that matched your filter."
@@ -426,6 +453,7 @@ def inspect_clips(
         rows, start, end, wanted_characters=characters or []
     )
     report["project_id"] = _project(tool_context)
+    _with_watch_urls(report["clips"], _project(tool_context))
     direct = [c["clip_label"] for c in report["clips"]
               if c["evidence_tier"] == "DIRECT_INTERACTION"]
     _note(

@@ -183,3 +183,20 @@ def test_investigate_scene_closes_its_own_chronological_gap(monkeypatch):
     assert [c["clip_label"] for c in following["clips"]] == ["C0101", "C0102", "C0103"]
     # Having fetched it, the tool owes nothing: one call is enough to answer.
     assert review(ctx.state["investigation"], invocation="turn-1")["sufficient"] is True
+
+
+def test_ranked_clips_carry_a_ready_made_watch_url():
+    """The model must copy the link, not retype the host.
+
+    Asked to build the URL from a base in its prompt, the model intermittently
+    dropped a digit ('127.00.1') - and when it slipped, every link in that
+    answer was broken.
+    """
+    from dailies_agent.editorial_tools import _with_watch_urls
+
+    clips = [{"clip": "A001_C0063.mp4"}, {"clip": "A001_C0123.mp4"}]
+    out = _with_watch_urls(clips, "lailamajnu", "http://127.0.0.1:8080/")
+    assert out[0]["watch_url"] == (
+        "http://127.0.0.1:8080/watch?project=lailamajnu&file=A001_C0063.mp4"
+    )
+    assert out[1]["watch_url"].endswith("file=A001_C0123.mp4")

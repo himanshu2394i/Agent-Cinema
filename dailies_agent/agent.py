@@ -138,6 +138,8 @@ def instruction_provider(ctx) -> str:
         f" quote scene_id, evidence_tier, emotional_arc, and confidence."
         f" `after` is chronological clip order. Do not invent numbered"
         f" screenplay scenes when footage scene is unknown."
+        f" Link clips using the `watch_url` / `watch_urls` string the tool"
+        f" returned - copy it exactly, never retype or rebuild the address."
         f"\n\nInvestigate before you answer. Every tool call is recorded"
         f" in an evidence ledger. For any story, timeline, or 'what happens"
         f" after' question, call review_evidence before answering. If it"
