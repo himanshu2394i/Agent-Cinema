@@ -39,9 +39,13 @@
   </section>
 
   <section id="step-screenplay" hidden>
-    <h2>2. Upload screenplay (PDF)</h2>
-    <input id="screenplay-file" type="file" accept=".pdf">
-    <button id="btn-screenplay">Parse screenplay</button>
+    <h2>2. Screenplay &amp; vocabulary</h2>
+    <p id="screenplay-ready" class="ok" hidden></p>
+    <div id="screenplay-upload">
+      <p class="sub">Upload a PDF to parse cast, locations, props and scenes into the project schema.</p>
+      <input id="screenplay-file" type="file" accept=".pdf">
+      <button id="btn-screenplay">Parse screenplay</button>
+    </div>
     <p id="screenplay-msg"></p>
     <pre id="vocab-preview" hidden></pre>
   </section>
@@ -125,6 +129,8 @@
         $('vocab-preview').hidden = false;
         $('vocab-preview').textContent = JSON.stringify(vocab, null, 2);
         $('step-clips').hidden = false;
+        const status = await api(`/projects/${projectId}`);
+        showScreenplayReady(status);
       } catch (e) {
         $('screenplay-msg').className = 'error';
         $('screenplay-msg').textContent = e.message;
@@ -156,6 +162,28 @@
         `Keep uvicorn on :8080 — Drive sync runs every 2 minutes. Watch links: /watch?project=${projectId}&file=A001_C0007.mp4`;
     }
 
+    function showScreenplayReady(status) {
+      const ready = $('screenplay-ready');
+      const upload = $('screenplay-upload');
+      if (!status.has_vocabulary) {
+        ready.hidden = true;
+        upload.hidden = false;
+        return;
+      }
+      ready.hidden = false;
+      upload.hidden = true;
+      let text = 'Production package ready — screenplay and vocabulary on disk.';
+      ready.textContent = text + ' ';
+      if (status.has_screenplay) {
+        const a = document.createElement('a');
+        a.href = `/projects/${encodeURIComponent(status.id)}/screenplay.pdf`;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = 'Open screenplay PDF';
+        ready.append(a);
+      }
+    }
+
     async function resume(id) {
       projectId = id;
       const status = await api(`/projects/${id}`);
@@ -167,6 +195,7 @@
         : `Resumed ${status.id}`;
       $('step-screenplay').hidden = false;
       $('step-clips').hidden = false;
+      showScreenplayReady(status);
       showDriveState(status.drive_folder_id);
       if (status.has_vocabulary) {
         try {
@@ -174,7 +203,8 @@
           $('vocab-preview').hidden = false;
           $('vocab-preview').textContent = JSON.stringify(vocab, null, 2);
           $('screenplay-msg').className = 'ok';
-          $('screenplay-msg').textContent = 'Vocabulary already parsed';
+          $('screenplay-msg').textContent =
+            `${vocab.scenes.length} scenes · ${vocab.characters.length} characters · ${vocab.locations.length} locations`;
         } catch (_) { /* none */ }
       }
       if (status.clip_count > 0 || status.drive_folder_id) showChatStep();

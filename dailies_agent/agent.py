@@ -21,9 +21,17 @@ from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 from google.genai import types
 from mcp import StdioServerParameters
 
+from .editorial_tools import (
+    add_to_select_list,
+    get_select_list,
+    investigate_scene,
+    rank_clips,
+    reassess_last_ranking,
+    summarize_takes,
+)
 from .shot_schema import agent_instruction
 from .synth import demo_vocabulary
-from .vocab import load_vocabulary, vocabulary_path_for
+from .vocab import bundled_projects_root, load_vocabulary, vocabulary_path_for
 
 load_dotenv()
 
@@ -39,17 +47,32 @@ def active_project(state) -> str:
     return state.get("project_id") or DEFAULT_PROJECT_ID
 
 
+def _project_ids_from_vocabulary_files(root: Path) -> list[str]:
+    return [p.parent.name for p in root.glob("*/vocabulary.json")]
+
+
 def available_projects() -> list[str]:
     """Projects whose screenplay has been parsed - the ones we can switch to."""
+    ids: list[str] = []
+    seen: set[str] = set()
+
+    def add(project_id: str) -> None:
+        if project_id not in seen:
+            seen.add(project_id)
+            ids.append(project_id)
+
     try:
         from projects import list_projects
 
-        ids = [project["id"] for project in list_projects()]
+        for project in list_projects():
+            add(project["id"])
     except ImportError:
         # Cloud Run ships dailies_agent/ only; there is no projects module.
-        ids = [p.parent.name for p in Path("assets/projects").glob("*/vocabulary.json")]
-    if DEFAULT_PROJECT_ID not in ids:
-        ids.append(DEFAULT_PROJECT_ID)
+        for project_id in _project_ids_from_vocabulary_files(Path("assets/projects")):
+            add(project_id)
+        for project_id in _project_ids_from_vocabulary_files(bundled_projects_root()):
+            add(project_id)
+    add(DEFAULT_PROJECT_ID)
     return sorted(i for i in ids if vocabulary_path_for(i).exists())
 
 
@@ -96,6 +119,23 @@ def instruction_provider(ctx) -> str:
         f"\n\nActive production: {project_id}. If the editor asks about a"
         f" different one, call set_active_project first - do not guess a"
         f" project_id. Ready now: {', '.join(available_projects()) or 'none'}."
+        f"\n\nEditorial workflow: for clip-finding or best-take questions,"
+        f" call rank_clips (or summarize_takes for one file) instead of"
+        f" returning hundreds of raw SQL rows. Explain results using the"
+        f" returned evidence, confidence, and alternatives. If the editor"
+        f" asks why, quote the evidence fields. If they ask whether you are"
+        f" sure, call reassess_last_ranking and relay challenge_answer — never"
+        f" increase confidence because they challenged you. Offer"
+        f" add_to_select_list when they want to keep picks — pass the ranked"
+        f" clip objects, not raw SQL. When showing the select list, call"
+        f" get_select_list and relay every line in `display` (clip, take,"
+        f" score, confidence, selection_reason)."
+        f" For story/context questions (what happens between two people,"
+        f" what comes after a moment, every interaction), call"
+        f" investigate_scene. It groups consecutive clips into sequences;"
+        f" quote scene_id, evidence_tier, emotional_arc, and confidence."
+        f" `after` is chronological clip order. Do not invent numbered"
+        f" screenplay scenes when footage scene is unknown."
     )
 
 
@@ -153,7 +193,16 @@ root_agent = LlmAgent(
     model=os.getenv("AGENT_MODEL", "gemini-2.5-flash"),
     description="Finds shots in a footage archive from a plain-English description.",
     instruction=instruction_provider,
-    tools=[clickhouse, set_active_project],
+    tools=[
+        clickhouse,
+        set_active_project,
+        rank_clips,
+        summarize_takes,
+        investigate_scene,
+        reassess_last_ranking,
+        add_to_select_list,
+        get_select_list,
+    ],
     generate_content_config=types.GenerateContentConfig(
         http_options=types.HttpOptions(
             retry_options=types.HttpRetryOptions(initial_delay=2, max_delay=30, attempts=5),

@@ -36,6 +36,7 @@ from projects import (
     resolve_clip,
     set_drive_folder,
     vocabulary_path,
+    screenplay_path,
 )
 from vocab import load_vocabulary
 
@@ -101,6 +102,7 @@ class ProjectStatus(BaseModel):
     id: str
     name: str
     has_vocabulary: bool
+    has_screenplay: bool
     clip_count: int
     drive_folder_id: str | None = None
 
@@ -137,6 +139,7 @@ def api_project_status(project_id: str) -> ProjectStatus:
         id=project_id,
         name=manifest["name"],
         has_vocabulary=vocabulary_path(project_id).exists(),
+        has_screenplay=screenplay_path(project_id).is_file(),
         clip_count=len(clips),
         drive_folder_id=manifest.get("drive_folder_id"),
     )
@@ -209,6 +212,16 @@ def api_get_vocabulary(project_id: str) -> dict:
         "props": vocabulary.props,
         "scenes": vocabulary.scenes,
     }
+
+
+@app.get("/projects/{project_id}/screenplay.pdf")
+def api_get_screenplay(project_id: str):
+    if not project_dir(project_id).exists():
+        raise HTTPException(status_code=404, detail="project not found")
+    path = screenplay_path(project_id)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="no screenplay on disk")
+    return FileResponse(path, media_type="application/pdf", filename=path.name)
 
 
 @app.post("/projects/{project_id}/clips")

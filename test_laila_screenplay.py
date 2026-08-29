@@ -31,6 +31,8 @@ def test_generated_pdf_is_readable_and_holds_the_screenplay(tmp_path):
     text = "".join(page.extract_text() for page in pypdf.PdfReader(str(pdf)).pages)
     assert "LAILA AND QAIS" in text
     assert "DESERT CAMP" in text
+    assert "GRAVEYARD" in text
+    assert "36" in text
 
 
 def test_vocabulary_is_written_normalised_and_loadable(tmp_path, monkeypatch):
@@ -50,8 +52,9 @@ def test_vocabulary_is_written_normalised_and_loadable(tmp_path, monkeypatch):
     assert "Laila's Father" in loaded.characters
     assert "Kaaba" in loaded.locations
     assert "Brass Lamp" in loaded.props
-    # Scene ids are slate data and stay verbatim.
-    assert loaded.scenes == [str(n) for n in range(1, 9)]
+    # Beat sheet covers the full legend arc, not a one-page summary.
+    assert len(loaded.scenes) >= 30
+    assert loaded.scenes == [str(n) for n in range(1, len(loaded.scenes) + 1)]
 
     on_disk = json.loads(projects.vocabulary_path("lailamajnu").read_text())
     assert set(on_disk) == {"characters", "locations", "props", "scenes"}

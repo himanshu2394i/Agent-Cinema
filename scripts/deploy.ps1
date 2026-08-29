@@ -28,6 +28,13 @@ gcloud projects add-iam-policy-binding $Project `
 Write-Host "==> Bundling agent dependencies..."
 New-Item -ItemType Directory -Force -Path "dailies_agent\assets" | Out-Null
 Copy-Item "assets\vocabulary.json" "dailies_agent\assets\vocabulary.json" -Force
+Get-ChildItem "assets\projects\*\vocabulary.json" -ErrorAction SilentlyContinue | ForEach-Object {
+  $proj = $_.Directory.Name
+  $target = Join-Path "dailies_agent\assets\projects" $proj
+  New-Item -ItemType Directory -Force -Path $target | Out-Null
+  Copy-Item $_.FullName (Join-Path $target "vocabulary.json") -Force
+  Write-Host "    bundled vocabulary for $proj"
+}
 # ADK cloud_run packaging can replace package modules with same-named files
 # from the project root (which use absolute imports and break on Cloud Run).
 # Stash those roots for the duration of `adk deploy`, and drop __pycache__.
@@ -48,11 +55,14 @@ $pass = ((Get-Content ".env" | Where-Object { $_ -match '^CLICKHOUSE_PASSWORD=' 
 $passFile = Join-Path $env:TEMP "clickhouse-password.bin"
 [System.IO.File]::WriteAllText($passFile, $pass, (New-Object System.Text.UTF8Encoding $false))
 try {
-  gcloud secrets create clickhouse-password --data-file=$passFile --project=$Project --replication-policy=automatic 2>$null
+  gcloud secrets create clickhouse-password --data-file=$passFile --project=$Project --replication-policy=automatic 2>$null | Out-Null
   if ($LASTEXITCODE -ne 0) {
     Write-Host "    Secret may already exist; updating version..."
     gcloud secrets versions add clickhouse-password --data-file=$passFile --project=$Project
   }
+} catch {
+  Write-Host "    Secret may already exist; updating version..."
+  gcloud secrets versions add clickhouse-password --data-file=$passFile --project=$Project
 } finally {
   Remove-Item $passFile -Force -ErrorAction SilentlyContinue
 }

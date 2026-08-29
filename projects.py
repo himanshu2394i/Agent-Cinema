@@ -58,6 +58,10 @@ def vocabulary_path(project_id: str) -> Path:
     return project_dir(project_id) / "vocabulary.json"
 
 
+def screenplay_path(project_id: str) -> Path:
+    return project_dir(project_id) / "screenplay.pdf"
+
+
 def clips_dir(project_id: str) -> Path:
     return project_dir(project_id) / "clips"
 

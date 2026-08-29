@@ -13,3 +13,4 @@ client_secret.json
 deploy/clips/assets/
 deploy/clips/projects.py
 deploy/clips/watch_server.py
+*.log

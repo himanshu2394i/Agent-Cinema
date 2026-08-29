@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 from google import genai
 
 from db import connect, logged_sources, replace_clip
-from ingest import clip_uri, log_clip, upload  # noqa: F401  (upload kept for callers)
+from ingest import clip_uri, ingest_model, log_clip, upload  # noqa: F401
 from vocab import load_vocabulary
 
 
@@ -35,6 +35,7 @@ def upload_and_log(video: Path, vocabulary, client, project_id: str) -> list[dic
     return log_clip(
         clip_uri(video, client, bucket=bucket or None, project_id=project_id),
         vocabulary, client,
+        model=ingest_model(),
         source_file=video.name, project_id=project_id,
     )
 

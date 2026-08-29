@@ -170,3 +170,19 @@ def test_attach_drive_folder_and_sync(client, tmp_path, monkeypatch):
     assert synced.status_code == 200
     assert synced.json()["downloaded"] == ["A001_C0002.mp4"]
     assert (projects.clips_dir("demo") / "A001_C0002.mp4").is_file()
+
+
+def test_serve_screenplay_pdf_when_on_disk(client, tmp_path, monkeypatch):
+    import projects
+
+    monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
+    client.post("/projects", json={"id": "laila", "name": "Laila"})
+    projects.screenplay_path("laila").write_bytes(b"%PDF-1.4 test")
+
+    status = client.get("/projects/laila").json()
+    assert status["has_screenplay"] is True
+
+    pdf = client.get("/projects/laila/screenplay.pdf")
+    assert pdf.status_code == 200
+    assert pdf.content.startswith(b"%PDF")
+    assert "pdf" in pdf.headers["content-type"]

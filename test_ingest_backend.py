@@ -116,7 +116,7 @@ def test_batch_uses_the_bucket_when_one_is_configured(monkeypatch):
         seen.update(bucket=bucket, project_id=project_id)
         return "gs://dailies-ingest/lailamajnu/A001_C0001.mp4"
 
-    def fake_log_clip(uri, vocabulary, client, source_file=None, project_id=None):
+    def fake_log_clip(uri, vocabulary, client, model=None, source_file=None, project_id=None):
         seen["uri"] = uri
         return []
 
@@ -146,3 +146,46 @@ def test_batch_without_a_bucket_still_uses_the_files_api(monkeypatch):
     ingest_all.upload_and_log(Path("A001_C0001.mp4"), None, None, "lailamajnu")
 
     assert seen["bucket"] in (None, "")
+
+
+def test_ingest_model_on_vertex_follows_agent_model(monkeypatch):
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    monkeypatch.setenv("AGENT_MODEL", "gemini-2.5-flash")
+    monkeypatch.delenv("INGEST_MODEL", raising=False)
+    assert ingest.ingest_model() == "gemini-2.5-flash"
+
+
+def test_ingest_model_on_vertex_rejects_developer_only_default(monkeypatch):
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    monkeypatch.delenv("AGENT_MODEL", raising=False)
+    monkeypatch.delenv("INGEST_MODEL", raising=False)
+    assert ingest.ingest_model() == ingest.VERTEX_DEFAULT_MODEL
+
+
+def test_ingest_model_on_developer_uses_36_flash(monkeypatch):
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "false")
+    monkeypatch.setenv("AGENT_MODEL", "gemini-2.5-flash")
+    monkeypatch.delenv("INGEST_MODEL", raising=False)
+    assert ingest.ingest_model() == ingest.DEVELOPER_DEFAULT_MODEL
+
+
+def test_batch_passes_backend_appropriate_model(monkeypatch):
+    import ingest_all
+
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    monkeypatch.setenv("AGENT_MODEL", "gemini-2.5-flash")
+    seen = {}
+
+    def fake_clip_uri(video, client, bucket=None, storage_client=None, project_id=None):
+        return "gs://b/p/A001_C0001.mp4"
+
+    def fake_log_clip(uri, vocabulary, client, model=None, source_file=None, project_id=None):
+        seen["model"] = model
+        return []
+
+    monkeypatch.setattr(ingest_all, "clip_uri", fake_clip_uri)
+    monkeypatch.setattr(ingest_all, "log_clip", fake_log_clip)
+
+    ingest_all.upload_and_log(Path("A001_C0001.mp4"), None, None, "lailamajnu")
+
+    assert seen["model"] == "gemini-2.5-flash"

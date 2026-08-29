@@ -147,3 +147,43 @@ def test_missing_vocabulary_explains_itself_instead_of_raising(
     instruction = agent_module.instruction_provider(FakeContext({"project_id": "bare"}))
     assert "bare" in instruction
     assert "screenplay" in instruction.lower()
+
+
+def test_bundled_vocabulary_enables_cloud_run_project_switch(
+    agent_module, tmp_path, monkeypatch
+):
+    """Cloud Run has no projects module; vocab is staged under dailies_agent/assets."""
+    import builtins
+    from dailies_agent import vocab
+
+    assets = tmp_path / "assets"
+    bundled = assets / "projects" / "cloud-test"
+    bundled.mkdir(parents=True)
+    (bundled / "vocabulary.json").write_text(
+        json.dumps(
+            {
+                "characters": ["Laila"],
+                "locations": ["Desert"],
+                "props": ["Lamp"],
+                "scenes": ["1"],
+            }
+        )
+    )
+    monkeypatch.setattr(vocab, "_PACKAGE_ASSETS", assets)
+    real_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "projects":
+            raise ImportError("cloud run bundle")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    ready = agent_module.available_projects()
+    assert "cloud-test" in ready
+    result = agent_module.set_active_project("cloud-test", FakeContext())
+    assert result["project_id"] == "cloud-test"
+    assert "Laila" in agent_module.instruction_provider(
+        FakeContext({"project_id": "cloud-test"})
+    )
+    assert vocab.vocabulary_path_for("cloud-test") == bundled / "vocabulary.json"

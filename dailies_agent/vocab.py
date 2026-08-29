@@ -102,8 +102,19 @@ class ProjectVocabulary:
 
 
 # Prefer package-local cache so Cloud Run (ADK only ships dailies_agent/) works.
-VOCABULARY_CACHE = Path(__file__).resolve().parent / "assets" / "vocabulary.json"
+_PACKAGE_ASSETS = Path(__file__).resolve().parent / "assets"
+VOCABULARY_CACHE = _PACKAGE_ASSETS / "vocabulary.json"
 _LEGACY_VOCABULARY_CACHE = Path("assets/vocabulary.json")
+
+
+def bundled_projects_root() -> Path:
+    """Directory of per-project vocabulary files inside the agent image."""
+    return _PACKAGE_ASSETS / "projects"
+
+
+def bundled_vocabulary_path(project_id: str) -> Path:
+    """Vocabulary staged inside the agent image at deploy time."""
+    return bundled_projects_root() / project_id / "vocabulary.json"
 
 
 def vocabulary_path_for(project_id: str) -> Path:
@@ -116,6 +127,9 @@ def vocabulary_path_for(project_id: str) -> Path:
             return path
     except ImportError:
         path = Path(f"assets/projects/{project_id}/vocabulary.json")
+    bundled = bundled_vocabulary_path(project_id)
+    if bundled.exists():
+        return bundled
     if project_id == "notld_1968":
         if VOCABULARY_CACHE.exists():
             return VOCABULARY_CACHE
