@@ -186,3 +186,91 @@ def test_serve_screenplay_pdf_when_on_disk(client, tmp_path, monkeypatch):
     assert pdf.status_code == 200
     assert pdf.content.startswith(b"%PDF")
     assert "pdf" in pdf.headers["content-type"]
+
+
+def _fake_session(ledger, state_extra=None):
+    state = {"project_id": "lailamajnu", "investigation": ledger}
+    state.update(state_extra or {})
+    return {"id": "s1", "state": state}
+
+
+def test_trace_page_renders_the_investigation_steps(client, monkeypatch):
+    import projects_api
+
+    ledger = [
+        {"step": 1, "tool": "investigate_scene", "question": "talks to father",
+         "clips_seen": ["C0100", "C0109"], "finding": "anchor C0100-C0100.",
+         "evidence_tier": "DIRECT_INTERACTION", "invocation": "t1"},
+        {"step": 2, "tool": "inspect_clips", "question": "What is on C0101-C0103?",
+         "clips_seen": ["C0101", "C0102", "C0103"], "finding": "3 clips with footage.",
+         "evidence_tier": "METADATA_ONLY", "invocation": "t1"},
+    ]
+    monkeypatch.setattr(projects_api, "_adk_session", lambda *a, **k: _fake_session(ledger))
+    page = client.get("/trace", params={"session": "s1"})
+    assert page.status_code == 200
+    body = page.text
+    assert "Mapped the sequence" in body
+    assert "Inspected the footage" in body
+    assert "C0101-C0103" in body          # collapsed range
+    assert "3 clips with footage." in body
+    assert "Evidence sufficient" in body
+
+
+def test_trace_page_names_an_open_gap_rather_than_claiming_sufficiency(client, monkeypatch):
+    import projects_api
+
+    ledger = [
+        {"step": 1, "tool": "investigate_scene", "question": "after?",
+         "clips_seen": ["C0100"], "finding": "anchor.", "evidence_tier": None,
+         "pending_followup": [101, 103], "invocation": "t1"},
+    ]
+    monkeypatch.setattr(projects_api, "_adk_session", lambda *a, **k: _fake_session(ledger))
+    body = client.get("/trace", params={"session": "s1"}).text
+    assert "C0101" in body
+    assert "Evidence sufficient" not in body
+
+
+def test_trace_page_says_so_when_nothing_has_been_investigated(client, monkeypatch):
+    import projects_api
+
+    monkeypatch.setattr(projects_api, "_adk_session", lambda *a, **k: _fake_session([]))
+    body = client.get("/trace", params={"session": "s1"}).text
+    assert "No investigation recorded" in body
+
+
+def test_trace_page_escapes_session_input(client, monkeypatch):
+    import projects_api
+
+    monkeypatch.setattr(projects_api, "_adk_session", lambda *a, **k: _fake_session([]))
+    body = client.get("/trace", params={"session": "<script>x</script>"}).text
+    assert "<script>x</script>" not in body
+
+
+def test_trace_page_lists_sessions_when_none_is_named(client, monkeypatch):
+    """A panel you can only reach by guessing an id is not reachable."""
+    import projects_api
+
+    monkeypatch.setattr(
+        projects_api, "_adk_sessions",
+        lambda *a, **k: [{"id": "s1", "lastUpdateTime": 2}, {"id": "s2", "lastUpdateTime": 1}],
+    )
+    body = client.get("/trace").text
+    assert "s1" in body and "s2" in body
+    assert "/trace?session=s1" in body
+
+
+def test_trace_page_only_shows_budget_for_a_single_turn(client, monkeypatch):
+    """Budget is per question, so a whole-session view must not quote one."""
+    import projects_api
+
+    ledger = [
+        {"step": 1, "tool": "rank_clips", "question": "q1", "clips_seen": ["C0063"],
+         "finding": "ranked", "evidence_tier": None, "invocation": "t1"},
+        {"step": 2, "tool": "inspect_clips", "question": "q2", "clips_seen": ["C0101"],
+         "finding": "looked", "evidence_tier": None, "invocation": "t2"},
+    ]
+    monkeypatch.setattr(projects_api, "_adk_session", lambda *a, **k: _fake_session(ledger))
+    whole = client.get("/trace", params={"session": "s1"}).text
+    assert "budget" not in whole.lower()
+    one_turn = client.get("/trace", params={"session": "s1", "turn": "t2"}).text
+    assert "budget 4 left" in one_turn

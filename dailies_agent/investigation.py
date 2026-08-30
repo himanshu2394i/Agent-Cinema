@@ -111,3 +111,56 @@ def review(
             " Say what is established and name what could not be checked."
         )
     return verdict
+
+
+# What each tool did, in an editor's words rather than the function name.
+TOOL_LABELS = {
+    "rank_clips": "Ranked candidates",
+    "summarize_takes": "Compared takes",
+    "investigate_scene": "Mapped the sequence",
+    "inspect_clips": "Inspected the footage",
+    "reassess_last_ranking": "Re-checked the ranking",
+}
+
+
+def _collapse(labels: list[str]) -> str:
+    """`C0101, C0102, C0103` reads better as `C0101-C0103`."""
+    numbers = sorted({int(name[1:]) for name in labels if name[1:].isdigit()})
+    if not numbers:
+        return ", ".join(labels)
+    runs: list[tuple[int, int]] = []
+    for number in numbers:
+        if runs and number == runs[-1][1] + 1:
+            runs[-1] = (runs[-1][0], number)
+        else:
+            runs.append((number, number))
+    return ", ".join(
+        f"C{start:04d}" if start == end else f"C{start:04d}-C{end:04d}"
+        for start, end in runs
+    )
+
+
+def trace_rows(
+    ledger: list[dict[str, Any]] | None,
+    invocation: str | None = None,
+) -> list[dict[str, Any]]:
+    """The ledger as display rows: what was done, what was seen, what was found.
+
+    Actions and evidence only. Nothing here is the model's reasoning, because
+    reasoning cannot be checked against the footage and this panel exists to
+    be checked.
+    """
+    steps = list(ledger or [])
+    if invocation is not None:
+        steps = [s for s in steps if s.get("invocation") == invocation]
+    return [
+        {
+            "step": position,
+            "label": TOOL_LABELS.get(step.get("tool"), step.get("tool") or "step"),
+            "question": step.get("question") or "",
+            "clips": _collapse(step.get("clips_seen") or []),
+            "finding": step.get("finding") or "",
+            "evidence_tier": step.get("evidence_tier"),
+        }
+        for position, step in enumerate(steps, start=1)
+    ]

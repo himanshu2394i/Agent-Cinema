@@ -432,9 +432,15 @@ def _invocation(tool_context) -> str | None:
 def _note(tool_context, **kwargs) -> None:
     from .investigation import record
 
-    if tool_context is not None:
-        kwargs.setdefault("invocation", _invocation(tool_context))
-        record(_ledger(tool_context), **kwargs)
+    if tool_context is None:
+        return
+    kwargs.setdefault("invocation", _invocation(tool_context))
+    ledger = _ledger(tool_context)
+    record(ledger, **kwargs)
+    # ADK's State persists what is assigned, not what is mutated, so the
+    # append has to be written back or every step after the first turn is
+    # lost when the session is stored.
+    tool_context.state["investigation"] = ledger
 
 
 def inspect_clips(

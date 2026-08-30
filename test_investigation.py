@@ -1,5 +1,7 @@
 """The evidence ledger: what the agent has checked, and what it still owes."""
 
+import copy
+
 from dailies_agent.investigation import (
     MAX_INVESTIGATION_STEPS,
     clip_label,
@@ -233,3 +235,79 @@ def test_select_list_display_carries_the_link_not_a_bare_filename():
         "&file=A001_C0123.mp4)"
     )
     assert "take 6" in line and "moderate" in line and "embrace" in line
+
+
+def test_trace_rows_show_actions_and_evidence_not_reasoning():
+    from dailies_agent.investigation import trace_rows
+
+    ledger = []
+    record(ledger, tool="investigate_scene", question="talks to father",
+           clips_seen=["C0100", "C0109"], finding="anchor C0100-C0100.",
+           evidence_tier="DIRECT_INTERACTION", invocation="t1")
+    record(ledger, tool="inspect_clips", question="What is on C0101-C0103?",
+           clips_seen=["C0101", "C0102", "C0103"],
+           finding="3 clips with footage.", invocation="t1")
+    rows = trace_rows(ledger)
+    assert [r["step"] for r in rows] == [1, 2]
+    assert rows[0]["label"] == "Mapped the sequence"
+    assert rows[1]["label"] == "Inspected the footage"
+    # Clip ranges collapse so a long list stays readable.
+    assert rows[1]["clips"] == "C0101-C0103"
+    assert rows[0]["clips"] == "C0100, C0109"
+    assert rows[1]["finding"] == "3 clips with footage."
+    assert "reasoning" not in rows[0] and "thought" not in rows[0]
+
+
+def test_trace_rows_scope_to_one_turn_when_asked():
+    from dailies_agent.investigation import trace_rows
+
+    ledger = []
+    record(ledger, tool="rank_clips", question="old", clips_seen=["C0063"],
+           finding="ranked", invocation="t1")
+    record(ledger, tool="inspect_clips", question="new", clips_seen=["C0101"],
+           finding="looked", invocation="t2")
+    rows = trace_rows(ledger, invocation="t2")
+    assert len(rows) == 1
+    assert rows[0]["step"] == 1, "steps renumber within the turn"
+
+
+def test_trace_rows_survive_an_unknown_tool():
+    from dailies_agent.investigation import trace_rows
+
+    ledger = []
+    record(ledger, tool="some_new_tool", question="q", clips_seen=[],
+           finding="f", invocation="t1")
+    assert trace_rows(ledger)[0]["label"] == "some_new_tool"
+
+
+class _AdkLikeState(dict):
+    """ADK's State persists what is assigned, not what is mutated in place.
+
+    A list appended to without reassignment never reaches the session store,
+    so steps after the first turn silently vanished.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.persisted = {}
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        # Snapshot, the way a session store serializes it - so a list that is
+        # only mutated in place afterwards does not update what was stored.
+        self.persisted[key] = copy.deepcopy(value)
+
+
+def test_each_recorded_step_is_written_back_to_session_state():
+    import dailies_agent.editorial_tools as tools
+
+    ctx = _FakeCtx()
+    ctx.state = _AdkLikeState({"project_id": "lailamajnu"})
+    tools._note(ctx, tool="rank_clips", question="q1", clips_seen=["C0063"],
+                finding="first turn")
+    ctx.invocation_id = "turn-2"
+    tools._note(ctx, tool="inspect_clips", question="q2", clips_seen=["C0101"],
+                finding="second turn")
+    assert len(ctx.state.persisted["investigation"]) == 2, (
+        "the second step must be assigned back, not just appended"
+    )
