@@ -200,3 +200,36 @@ def test_ranked_clips_carry_a_ready_made_watch_url():
         "http://127.0.0.1:8080/watch?project=lailamajnu&file=A001_C0063.mp4"
     )
     assert out[1]["watch_url"].endswith("file=A001_C0123.mp4")
+
+
+def test_sequence_clips_come_back_as_finished_markdown_links():
+    """Pairing filenames against a parallel URL list is where links still broke.
+
+    A sequence lists several clips, so the model had to match name to URL by
+    position. Handing it the finished link removes the pairing step.
+    """
+    from dailies_agent.editorial_tools import _sequence_links
+
+    sequence = {"clips": ["A001_C0056.mp4", "A001_C0057.mp4"]}
+    _sequence_links(sequence, "lailamajnu", "http://127.0.0.1:8080")
+    assert sequence["clip_links"] == [
+        "[A001_C0056.mp4](http://127.0.0.1:8080/watch?project=lailamajnu&file=A001_C0056.mp4)",
+        "[A001_C0057.mp4](http://127.0.0.1:8080/watch?project=lailamajnu&file=A001_C0057.mp4)",
+    ]
+
+
+def test_select_list_display_carries_the_link_not_a_bare_filename():
+    """The last dead links came from here: display gave a name, no address."""
+    import dailies_agent.editorial_tools as tools
+
+    ctx = _FakeCtx()
+    ctx.state["select_list"] = [{
+        "clip": "A001_C0123.mp4", "best_take": 6, "ranking_score": 0.8,
+        "confidence": "moderate", "selection_reason": "embrace",
+    }]
+    line = tools.get_select_list(tool_context=ctx)["display"][0]
+    assert line.startswith(
+        "[A001_C0123.mp4](http://127.0.0.1:8080/watch?project=lailamajnu"
+        "&file=A001_C0123.mp4)"
+    )
+    assert "take 6" in line and "moderate" in line and "embrace" in line

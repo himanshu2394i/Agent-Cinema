@@ -38,7 +38,27 @@ def _with_watch_urls(
         name = item.get("clip") or item.get("source_file")
         if name:
             item["watch_url"] = f"{base}/watch?project={project_id}&file={name}"
+            item["clip_link"] = f"[{name}]({item['watch_url']})"
     return clips
+
+
+def _sequence_links(
+    sequence: dict[str, Any],
+    project_id: str,
+    clip_base_url: str | None = None,
+) -> dict[str, Any]:
+    """Finished markdown links for a sequence's clips.
+
+    A sequence lists several files, so a parallel list of URLs left the model
+    pairing name to address by position - which is where the last dead links
+    were coming from. The finished link removes the pairing step.
+    """
+    base = (clip_base_url or os.getenv("CLIP_BASE_URL", "http://127.0.0.1:8080")).rstrip("/")
+    names = sequence.get("clips") or []
+    sequence["clip_links"] = [
+        f"[{name}]({base}/watch?project={project_id}&file={name})" for name in names
+    ]
+    return sequence
 
 
 def _criteria(
@@ -247,12 +267,8 @@ def investigate_scene(
         "event": event,
     }
     project = _project(tool_context)
-    base = os.getenv("CLIP_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
     for sequence in report.get("sequences") or []:
-        sequence["watch_urls"] = [
-            f"{base}/watch?project={project}&file={name}"
-            for name in sequence.get("clips") or []
-        ]
+        _sequence_links(sequence, project)
     step = _scene_step(report, characters or [], event, words)
     followup = step.get("pending_followup")
     if followup:
@@ -273,7 +289,10 @@ def investigate_scene(
             last,
             wanted_characters=characters or [],
         )
-        _with_watch_urls(report["immediately_after"]["clips"], project)
+        following = report["immediately_after"]["clips"]
+        _with_watch_urls(following, project)
+        for item in following:
+            item["clip_link"] = f"[{item['clip']}]({item['watch_url']})"
         report["note"] += (
             " `immediately_after` is the literal next footage on the timeline;"
             " `after` is only the next sequence that matched your filter."
@@ -379,10 +398,14 @@ def add_to_select_list(
 def get_select_list(tool_context=None) -> dict[str, Any]:
     """Return the current session select list as an editorial decision record."""
     items = list(tool_context.state.get("select_list", []))
+    project = _project(tool_context)
+    base = os.getenv("CLIP_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
     lines = []
     for item in items:
+        name = item.get("clip")
+        item["watch_url"] = f"{base}/watch?project={project}&file={name}"
         lines.append(
-            f"{item.get('clip')} / take {item.get('best_take')} — "
+            f"[{name}]({item['watch_url']}) / take {item.get('best_take')} — "
             f"score {item.get('ranking_score')} — {item.get('confidence')} — "
             f"{item.get('selection_reason')}"
         )
