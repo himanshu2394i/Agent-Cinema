@@ -1,6 +1,0 @@
-google-adk
-google-genai
-mcp<2
-mcp-clickhouse
-clickhouse-connect
-python-dotenv

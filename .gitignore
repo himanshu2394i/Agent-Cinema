@@ -14,3 +14,7 @@ deploy/clips/assets/
 deploy/clips/projects.py
 deploy/clips/watch_server.py
 *.log
+deploy/app/assets/
+deploy/app/dailies_agent/
+deploy/app/static/
+deploy/app/*.py
