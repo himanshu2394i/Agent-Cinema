@@ -68,11 +68,16 @@
 
   <section id="step-chat" hidden>
     <h2>4. Open agent</h2>
-    <p>Clips are on disk. Run ingest locally, then chat:</p>
+    <p>Clips are on disk.</p>
+    <button id="btn-ingest">Ingest new clips</button>
+    <p id="ingest-msg"></p>
+    <p class="sub">Or run the same thing locally:</p>
     <pre id="ingest-cmd"></pre>
     <p id="agent-hint" class="ok"></p>
     <p id="watch-hint" class="ok"></p>
     <p><a id="agent-link" href="/" target="_blank">Open ADK agent</a></p>
+    <p><a id="selects-link" href="#" target="_blank">Export select report</a></p>
+    <p class="sub" id="selects-hint"></p>
   </section>
 
   <script>
@@ -160,7 +165,71 @@
         `In the agent, type: use project ${projectId} — one adk web process serves every production, so this scopes the session without a restart.`;
       $('watch-hint').textContent =
         `Keep uvicorn on :8080 — Drive sync runs every 2 minutes. Watch links: /watch?project=${projectId}&file=A001_C0007.mp4`;
+      $('selects-link').href = `/projects/${projectId}/selects.csv`;
+      $('selects-hint').textContent =
+        'The selects circled so far — take, score, and the reason each was picked.';
     }
+
+    let ingestPollTimer = null;
+
+    function stopIngestPoll() {
+      if (ingestPollTimer) {
+        clearTimeout(ingestPollTimer);
+        ingestPollTimer = null;
+      }
+    }
+
+    function renderIngestStatus(status) {
+      $('btn-ingest').disabled = status.running;
+      const msg = $('ingest-msg');
+      if (status.running) {
+        msg.className = '';
+        msg.textContent = 'Ingesting…';
+        return;
+      }
+      if (status.error) {
+        msg.className = 'error';
+        msg.textContent = `Ingest failed: ${status.error}`;
+        return;
+      }
+      let text = `Ingest done — ${status.done} clip(s) logged`;
+      if (status.skipped.length) text += `, ${status.skipped.length} already up to date`;
+      if (status.failed.length) text += `, ${status.failed.length} failed (${status.failed.join(', ')})`;
+      msg.className = status.failed.length ? 'error' : 'ok';
+      msg.textContent = text;
+    }
+
+    function pollIngestStatus() {
+      api(`/projects/${projectId}/ingest`).then((status) => {
+        renderIngestStatus(status);
+        if (status.running) {
+          ingestPollTimer = setTimeout(pollIngestStatus, 2000);
+        } else {
+          stopIngestPoll();
+        }
+      }).catch((e) => {
+        stopIngestPoll();
+        $('btn-ingest').disabled = false;
+        $('ingest-msg').className = 'error';
+        $('ingest-msg').textContent = e.message;
+      });
+    }
+
+    $('btn-ingest').onclick = async () => {
+      $('btn-ingest').disabled = true;
+      $('ingest-msg').className = '';
+      $('ingest-msg').textContent = 'Starting ingest…';
+      stopIngestPoll();
+      try {
+        const status = await api(`/projects/${projectId}/ingest`, { method: 'POST' });
+        renderIngestStatus(status);
+        if (status.running) ingestPollTimer = setTimeout(pollIngestStatus, 2000);
+      } catch (e) {
+        $('btn-ingest').disabled = false;
+        $('ingest-msg').className = 'error';
+        $('ingest-msg').textContent = e.message;
+      }
+    };
 
     function showScreenplayReady(status) {
       const ready = $('screenplay-ready');

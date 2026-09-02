@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 from typing import Any
 
 from .editorial import (
@@ -361,14 +363,52 @@ def _select_reason(item: dict[str, Any]) -> str:
     return "ranked match"
 
 
+# ponytail: select list lives in one JSON file per project on local disk -
+# durable across sessions, but Cloud Run's filesystem is ephemeral, so a
+# container restart there still loses it. Move to a shared store (a DB
+# row, a GCS object) if it needs to survive a restart or span workers.
+def _selects_path(project_id: str) -> Path:
+    """Where this project's select list lives on disk.
+
+    dailies_agent/ is deployed to Cloud Run standalone, without the repo
+    root, so this must not hard-import the root `projects` module - same
+    try/fallback vocab.vocabulary_path_for uses for vocabulary.json.
+    """
+    try:
+        from projects import project_dir
+
+        return project_dir(project_id) / "selects.json"
+    except ImportError:
+        return Path(f"assets/projects/{project_id}/selects.json")
+
+
+def _load_selects(path: Path) -> tuple[list[dict[str, Any]], str | None]:
+    """Read a stored select list, tolerating a missing or corrupt file.
+
+    A missing file is an empty list with no error - nothing has been
+    selected yet. A malformed file returns an empty list plus a message the
+    editor can be told, instead of raising deep inside a tool call.
+    """
+    if not path.exists():
+        return [], None
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        return [], f"select list file is corrupted ({exc}); starting over"
+    if not isinstance(data, list):
+        return [], "select list file is corrupted (not a list); starting over"
+    return data, None
+
+
 def add_to_select_list(
     clips: list[dict[str, Any]],
     tool_context=None,
 ) -> dict[str, Any]:
-    """Add ranked clips/takes to this session's editorial decision record.
+    """Add ranked clips/takes to this project's editorial decision record.
 
     Preserve score, confidence, and why the take was selected — not just
-    the filename.
+    the filename. Persisted to disk (selects.json per project) so the
+    record outlives the session and a fresh one can read it back.
 
     Args:
         clips: Ranked items from rank_clips / summarize_takes.
@@ -376,8 +416,8 @@ def add_to_select_list(
     Returns:
         The updated select list and entries added.
     """
-    state = tool_context.state
-    bucket = state.setdefault("select_list", [])
+    path = _selects_path(_project(tool_context))
+    bucket, error = _load_selects(path)
     added = []
     for item in clips:
         clip = item.get("clip") or item.get("source_file")
@@ -390,15 +430,28 @@ def add_to_select_list(
             "confidence": item.get("confidence"),
             "selection_reason": _select_reason(item),
         }
+        # Re-adding the same clip+take is an updated decision, not a second
+        # row - replace the earlier entry rather than duplicating it.
+        key = (entry["clip"], entry["best_take"])
+        bucket = [e for e in bucket if (e.get("clip"), e.get("best_take")) != key]
         bucket.append(entry)
         added.append(entry)
-    return {"added": added, "select_list_count": len(bucket)}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(bucket, indent=2))
+    result = {"added": added, "select_list_count": len(bucket)}
+    if error:
+        result["error"] = error
+    return result
 
 
 def get_select_list(tool_context=None) -> dict[str, Any]:
-    """Return the current session select list as an editorial decision record."""
-    items = list(tool_context.state.get("select_list", []))
+    """Return the project's select list as an editorial decision record.
+
+    Reads from disk rather than session state, so a brand-new session sees
+    selects added in an earlier one.
+    """
     project = _project(tool_context)
+    items, error = _load_selects(_selects_path(project))
     base = os.getenv("CLIP_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
     lines = []
     for item in items:
@@ -409,7 +462,10 @@ def get_select_list(tool_context=None) -> dict[str, Any]:
             f"score {item.get('ranking_score')} — {item.get('confidence')} — "
             f"{item.get('selection_reason')}"
         )
-    return {"select_list": items, "count": len(items), "display": lines}
+    result = {"select_list": items, "count": len(items), "display": lines}
+    if error:
+        result["error"] = error
+    return result
 
 
 def _ledger(tool_context) -> list[dict[str, Any]]:

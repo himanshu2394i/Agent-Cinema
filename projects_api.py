@@ -10,6 +10,8 @@ and /watch for HTML5 clip playback when the agent cites a source_file.
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import json
 import logging
 import os
@@ -18,8 +20,8 @@ from html import escape
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from google import genai
 from pydantic import BaseModel, Field
@@ -28,6 +30,7 @@ from drive_sync import provision_drive_project, sync_project, try_drive_client
 from parse_script import parse_screenplay
 from projects import (
     PROJECTS_ROOT,
+    clip_watch_url,
     clips_dir,
     create_project,
     list_projects,
@@ -44,6 +47,7 @@ load_dotenv()
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
+CLIP_BASE_URL = os.getenv("CLIP_BASE_URL", "http://127.0.0.1:8080")
 
 
 def _sync_interval_seconds() -> int:
@@ -242,6 +246,87 @@ async def api_upload_clip(project_id: str, file: UploadFile = File(...)) -> dict
     return {"saved": target.name, "uploaded_to_drive": pushed}
 
 
+# ponytail: module-level dict, single-process only - status is lost on
+# restart and invisible to any other worker process. Fine for the one
+# uvicorn process this app runs as; move to a shared store (DB row, Redis)
+# if that ever needs to survive a restart or span workers.
+_ingest_status: dict[str, dict] = {}
+
+
+def _initial_ingest_status(project_id: str) -> dict:
+    return {
+        "project_id": project_id, "running": False,
+        "done": 0, "failed": [], "skipped": [], "shots": 0, "error": None,
+    }
+
+
+def _run_ingest_batch(project_id: str) -> tuple[int, int, list[str], list[str]]:
+    """The real per-project ingest run - same wiring as ingest_all.py's CLI.
+
+    A module-level name so tests can fake this one seam instead of three
+    layers down (genai client, ClickHouse, vocabulary) - the same style
+    run_batch's own tests use for log_clip/replace_clip/logged_sources.
+    Returns (clip count, shots written, failed names, skipped names).
+    """
+    from db import connect, logged_sources, replace_clip
+    from ingest_all import run_batch, upload_and_log
+    from vocab import load_vocabulary
+
+    client = genai.Client()
+    db = connect()
+    vocabulary = load_vocabulary(project_id=project_id)
+    videos = sorted(clips_dir(project_id).glob("*.mp4"))
+    shots, failed, skipped = run_batch(
+        videos, vocabulary, client, db,
+        log_clip=lambda v, voc, cli: upload_and_log(v, voc, cli, project_id),
+        replace_clip=replace_clip, logged_sources=logged_sources,
+        project_id=project_id, log=log.info,
+    )
+    return len(videos), shots, failed, skipped
+
+
+def _run_ingest(project_id: str) -> None:
+    """Background task body: run the batch and record the outcome."""
+    status = _ingest_status[project_id]
+    try:
+        clip_count, shots, failed, skipped = _run_ingest_batch(project_id)
+        status.update(
+            running=False, shots=shots, failed=failed, skipped=skipped,
+            done=clip_count - len(failed) - len(skipped), error=None,
+        )
+    except Exception as exc:
+        log.exception("ingest failed for project %s", project_id)
+        status.update(running=False, error=str(exc))
+
+
+@app.post("/projects/{project_id}/ingest", status_code=202)
+def api_start_ingest(project_id: str, background_tasks: BackgroundTasks) -> dict:
+    """Kick off ingest of this project's clips in the background.
+
+    Returns immediately - a 171-clip run must not be held open in one HTTP
+    request. Poll GET on the same path for progress. A run already in flight
+    for this project is returned as-is rather than started twice: two
+    concurrent runs on the same clips would double-spend Gemini calls.
+    """
+    if not project_dir(project_id).exists():
+        raise HTTPException(status_code=404, detail="project not found")
+    current = _ingest_status.get(project_id)
+    if current and current["running"]:
+        return current
+    status = _initial_ingest_status(project_id)
+    status["running"] = True
+    _ingest_status[project_id] = status
+    background_tasks.add_task(_run_ingest, project_id)
+    return status
+
+
+@app.get("/projects/{project_id}/ingest")
+def api_ingest_status(project_id: str) -> dict:
+    if not project_dir(project_id).exists():
+        raise HTTPException(status_code=404, detail="project not found")
+    return _ingest_status.get(project_id) or _initial_ingest_status(project_id)
+
+
 @app.get("/projects/{project_id}/media/{filename}")
 def api_stream_clip(project_id: str, filename: str):
     """Stream an mp4 for the HTML5 viewer (and direct download)."""
@@ -252,6 +337,53 @@ def api_stream_clip(project_id: str, filename: str):
     if path is None:
         raise HTTPException(status_code=404, detail="clip not found")
     return FileResponse(path, media_type="video/mp4", filename=path.name)
+
+
+SELECTS_CSV_COLUMNS = ["clip", "take", "score", "confidence", "reason", "watch_url"]
+
+
+@app.get("/projects/{project_id}/selects.csv")
+def api_export_selects(project_id: str):
+    """Download the editorial select list dailies_agent has built up, as CSV.
+
+    Reads the same selects.json that add_to_select_list writes
+    (dailies_agent/editorial_tools.py) so this is the one copy of the
+    truth, not a second store to keep in sync. A malformed file degrades to
+    an empty list rather than a 500 - a broken export helps no one.
+    """
+    if not project_dir(project_id).exists():
+        raise HTTPException(status_code=404, detail="project not found")
+    path = project_dir(project_id) / "selects.json"
+    items: list[dict] = []
+    if path.is_file():
+        try:
+            loaded = json.loads(path.read_text())
+            if isinstance(loaded, list):
+                items = loaded
+        except json.JSONDecodeError:
+            items = []
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(SELECTS_CSV_COLUMNS)
+    for item in items:
+        clip = item.get("clip") or ""
+        writer.writerow(
+            [
+                clip,
+                item.get("best_take", ""),
+                item.get("ranking_score", ""),
+                item.get("confidence", ""),
+                item.get("selection_reason", ""),
+                clip_watch_url(clip, project_id, CLIP_BASE_URL) if clip else "",
+            ]
+        )
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{project_id}-selects.csv"'
+        },
+    )
 
 
 @app.get("/watch", response_class=HTMLResponse)

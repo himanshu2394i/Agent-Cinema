@@ -1,4 +1,5 @@
 import json
+import threading
 from io import BytesIO
 from unittest.mock import patch
 
@@ -274,3 +275,149 @@ def test_trace_page_only_shows_budget_for_a_single_turn(client, monkeypatch):
     assert "budget" not in whole.lower()
     one_turn = client.get("/trace", params={"session": "s1", "turn": "t2"}).text
     assert "budget 4 left" in one_turn
+
+
+# --- POST/GET /projects/{project_id}/ingest -------------------------------
+#
+# _run_ingest_batch is the seam: it does the real genai/ClickHouse wiring
+# (see projects_api.py), so tests fake that one function instead of three
+# layers of client/db/vocabulary - the same style run_batch's own tests use
+# for log_clip/replace_clip/logged_sources.
+
+
+def test_starting_ingest_returns_immediately_and_reports_in_flight(client, monkeypatch):
+    import projects_api
+
+    client.post("/projects", json={"id": "demo", "name": "Demo"})
+    monkeypatch.setattr(projects_api, "_run_ingest_batch", lambda project_id: (2, 5, [], []))
+
+    res = client.post("/projects/demo/ingest")
+    assert res.status_code == 202
+    assert res.json()["running"] is True
+
+
+def test_ingest_status_reports_counts_after_a_run_completes(client, monkeypatch):
+    import projects_api
+
+    client.post("/projects", json={"id": "demo", "name": "Demo"})
+    monkeypatch.setattr(
+        projects_api, "_run_ingest_batch",
+        lambda project_id: (3, 7, ["bad.mp4"], ["old.mp4"]),
+    )
+
+    client.post("/projects/demo/ingest")
+    status = client.get("/projects/demo/ingest").json()
+
+    assert status["running"] is False
+    assert status["done"] == 1  # 3 clips - 1 failed - 1 skipped
+    assert status["failed"] == ["bad.mp4"]
+    assert status["skipped"] == ["old.mp4"]
+    assert status["error"] is None
+
+
+def test_ingest_status_records_the_error_from_a_failed_run(client, monkeypatch):
+    import projects_api
+
+    client.post("/projects", json={"id": "demo", "name": "Demo"})
+
+    def fake_run(project_id):
+        raise RuntimeError("ClickHouse is down")
+
+    monkeypatch.setattr(projects_api, "_run_ingest_batch", fake_run)
+
+    client.post("/projects/demo/ingest")
+    status = client.get("/projects/demo/ingest").json()
+
+    assert status["running"] is False
+    assert "ClickHouse is down" in status["error"]
+
+
+def test_starting_ingest_twice_does_not_launch_a_second_run(client, monkeypatch):
+    """The bug this guards against: two concurrent runs on the same clips
+    would double-spend Gemini calls."""
+    import projects_api
+
+    client.post("/projects", json={"id": "demo", "name": "Demo"})
+
+    calls = []
+    started = threading.Event()
+    release = threading.Event()
+
+    def fake_run(project_id):
+        calls.append(project_id)
+        started.set()
+        assert release.wait(timeout=5), "test deadlocked"
+        return (1, 1, [], [])
+
+    monkeypatch.setattr(projects_api, "_run_ingest_batch", fake_run)
+
+    thread = threading.Thread(target=lambda: client.post("/projects/demo/ingest"))
+    thread.start()
+    assert started.wait(timeout=5), "first run never started"
+
+    second = client.post("/projects/demo/ingest")
+    assert second.json()["running"] is True
+
+    release.set()
+    thread.join(timeout=5)
+
+    assert calls == ["demo"]
+
+
+def test_ingest_unknown_project_404s(client):
+    assert client.post("/projects/ghost/ingest").status_code == 404
+    assert client.get("/projects/ghost/ingest").status_code == 404
+
+
+# --- GET /projects/{project_id}/selects.csv -------------------------------
+
+
+def test_selects_csv_unknown_project_404s(client):
+    assert client.get("/projects/ghost/selects.csv").status_code == 404
+
+
+def test_selects_csv_empty_project_is_header_only(client):
+    client.post("/projects", json={"id": "empty", "name": "Empty"})
+    response = client.get("/projects/empty/selects.csv")
+    assert response.status_code == 200
+    assert "text/csv" in response.headers["content-type"]
+    assert 'filename="empty-selects.csv"' in response.headers["content-disposition"]
+    rows = response.text.strip("\r\n").splitlines()
+    assert rows == ["clip,take,score,confidence,reason,watch_url"]
+
+
+def test_selects_csv_contains_stored_rows_and_survives_comma_and_quote(client, tmp_path):
+    import projects
+
+    client.post("/projects", json={"id": "demo", "name": "Demo"})
+    selects_path = projects.project_dir("demo") / "selects.json"
+    selects_path.write_text(
+        json.dumps(
+            [
+                {
+                    "clip": "A001_C0123.mp4",
+                    "best_take": 7,
+                    "ranking_score": 0.94,
+                    "confidence": "high",
+                    "selection_reason": 'she says "no, wait" then cries, softly',
+                }
+            ]
+        )
+    )
+
+    response = client.get("/projects/demo/selects.csv")
+    assert response.status_code == 200
+
+    import csv
+    import io
+
+    reader = csv.reader(io.StringIO(response.text))
+    header, row = list(reader)
+    assert header == ["clip", "take", "score", "confidence", "reason", "watch_url"]
+    assert row[0] == "A001_C0123.mp4"
+    assert row[1] == "7"
+    assert row[2] == "0.94"
+    assert row[3] == "high"
+    assert row[4] == 'she says "no, wait" then cries, softly'
+    assert "A001_C0123.mp4" in row[5]
+    assert "project=demo" in row[5]

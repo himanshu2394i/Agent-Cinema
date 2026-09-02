@@ -141,10 +141,16 @@ def test_rank_takes_returns_top_clips_with_evidence():
     assert ranked[0]["alternatives"]
 
 
-def test_add_to_select_list_keeps_an_editorial_record():
+def _ctx(project_id="lailamajnu"):
+    return type("Ctx", (), {"state": {"project_id": project_id}})()
+
+
+def test_add_to_select_list_keeps_an_editorial_record(monkeypatch, tmp_path):
+    import projects
     from dailies_agent.editorial_tools import add_to_select_list, get_select_list
 
-    ctx = type("Ctx", (), {"state": {}})()
+    monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
+    ctx = _ctx()
     result = add_to_select_list(
         [
             {
@@ -167,6 +173,71 @@ def test_add_to_select_list_keeps_an_editorial_record():
     assert entry["confidence"] == "high"
     assert "crying" in entry["selection_reason"]
     assert get_select_list(ctx)["count"] == 1
+
+
+def test_select_list_survives_a_fresh_session(monkeypatch, tmp_path):
+    """A select list only readable in the same session is not a record of
+    anything - it must be readable from a brand-new session/state dict."""
+    import projects
+    from dailies_agent.editorial_tools import add_to_select_list, get_select_list
+
+    monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
+    add_to_select_list(
+        [{"clip": "A001_C0123.mp4", "best_take": 7, "score": 0.9,
+          "confidence": "high", "selection_reason": "the take"}],
+        tool_context=_ctx(),
+    )
+    fresh_session = _ctx()
+    result = get_select_list(fresh_session)
+    assert result["count"] == 1
+    assert result["select_list"][0]["clip"] == "A001_C0123.mp4"
+
+
+def test_add_to_select_list_replaces_duplicate_clip_and_take(monkeypatch, tmp_path):
+    """Re-adding the same clip+take updates the row instead of duplicating it."""
+    import projects
+    from dailies_agent.editorial_tools import add_to_select_list, get_select_list
+
+    monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
+    ctx = _ctx()
+    add_to_select_list(
+        [{"clip": "A001_C0123.mp4", "best_take": 7, "score": 0.8,
+          "confidence": "moderate", "selection_reason": "first pass"}],
+        tool_context=ctx,
+    )
+    add_to_select_list(
+        [{"clip": "A001_C0123.mp4", "best_take": 7, "score": 0.95,
+          "confidence": "high", "selection_reason": "updated pick"}],
+        tool_context=ctx,
+    )
+    result = get_select_list(ctx)
+    assert result["count"] == 1
+    assert result["select_list"][0]["selection_reason"] == "updated pick"
+    assert result["select_list"][0]["ranking_score"] == 0.95
+
+
+def test_get_select_list_missing_file_is_an_empty_list(monkeypatch, tmp_path):
+    import projects
+    from dailies_agent.editorial_tools import get_select_list
+
+    monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
+    result = get_select_list(_ctx())
+    assert result == {"select_list": [], "count": 0, "display": []}
+
+
+def test_get_select_list_corrupt_file_reports_instead_of_raising(monkeypatch, tmp_path):
+    import projects
+    from dailies_agent.editorial_tools import get_select_list
+
+    monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
+    selects_path = projects.project_dir("lailamajnu") / "selects.json"
+    selects_path.parent.mkdir(parents=True)
+    selects_path.write_text("{not valid json")
+
+    result = get_select_list(_ctx())
+    assert result["count"] == 0
+    assert result["select_list"] == []
+    assert "error" in result
 
 
 def test_critique_ranking_flags_the_weakest_conflict():

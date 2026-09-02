@@ -220,15 +220,20 @@ def test_sequence_clips_come_back_as_finished_markdown_links():
     ]
 
 
-def test_select_list_display_carries_the_link_not_a_bare_filename():
+def test_select_list_display_carries_the_link_not_a_bare_filename(monkeypatch, tmp_path):
     """The last dead links came from here: display gave a name, no address."""
+    import projects
     import dailies_agent.editorial_tools as tools
 
+    monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
     ctx = _FakeCtx()
-    ctx.state["select_list"] = [{
-        "clip": "A001_C0123.mp4", "best_take": 6, "ranking_score": 0.8,
-        "confidence": "moderate", "selection_reason": "embrace",
-    }]
+    tools.add_to_select_list(
+        [{
+            "clip": "A001_C0123.mp4", "best_take": 6, "score": 0.8,
+            "confidence": "moderate", "selection_reason": "embrace",
+        }],
+        tool_context=ctx,
+    )
     line = tools.get_select_list(tool_context=ctx)["display"][0]
     assert line.startswith(
         "[A001_C0123.mp4](http://127.0.0.1:8080/watch?project=lailamajnu"
