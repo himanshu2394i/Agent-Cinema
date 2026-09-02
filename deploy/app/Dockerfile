@@ -26,7 +26,8 @@ RUN pip install --no-cache-dir \
     google-api-python-client==2.199.0 \
     google-auth==2.56.3 \
     google-auth-httplib2==0.4.2 \
-    google-auth-oauthlib==1.4.1
+    google-auth-oauthlib==1.4.1 \
+    google-cloud-storage==3.13.1
 
 COPY projects_api.py projects.py drive_sync.py parse_script.py vocab.py ./
 COPY static ./static
