@@ -6,6 +6,8 @@ table therefore share source_file values, and anything keyed on source_file
 alone silently reaches into the wrong movie's rows.
 """
 
+from datetime import datetime
+
 import db
 
 
@@ -43,13 +45,18 @@ def _row(source_file, project_id):
 
 
 def test_logged_sources_only_reports_this_projects_clips():
-    client = FakeClickHouse(rows=[("A001_C0001.mp4",)])
+    last_ingested = datetime(2026, 1, 1, 12, 0, 0)
+    client = FakeClickHouse(rows=[("A001_C0001.mp4", last_ingested)])
 
-    db.logged_sources(client, project_id="lailamajnu")
+    result = db.logged_sources(client, project_id="lailamajnu")
 
     sql, parameters = client.last_query
     assert "project_id" in sql, "skip check must filter by project"
     assert parameters.get("pid") == "lailamajnu"
+    # A name -> last-ingested mapping, not a bare set - the staleness check
+    # in run_batch needs the timestamp to tell a re-cut clip from an
+    # untouched one.
+    assert result == {"A001_C0001.mp4": last_ingested}
 
 
 def test_replace_clip_does_not_delete_another_projects_rows():

@@ -13,6 +13,7 @@ prompt and wanting fresh results for clips that already succeeded.
 import os
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -40,14 +41,33 @@ def upload_and_log(video: Path, vocabulary, client, project_id: str) -> list[dic
     )
 
 
+def _clip_is_stale(video, last_ingested: datetime) -> bool:
+    """True when `video` was modified after it was last ingested.
+
+    Both sides are compared in UTC. ClickHouse's DateTime comes back naive
+    but is UTC under the hood; Path.stat().st_mtime is a POSIX timestamp,
+    also UTC by definition. Building the mtime side with plain
+    datetime.fromtimestamp() (local time) and comparing it to that
+    naive-but-UTC value would silently mix timezones - correct-looking on a
+    machine that happens to run UTC, wrong by hours everywhere else.
+    """
+    mtime_utc = datetime.fromtimestamp(video.stat().st_mtime, tz=timezone.utc)
+    if last_ingested.tzinfo is None:
+        last_ingested = last_ingested.replace(tzinfo=timezone.utc)
+    return mtime_utc > last_ingested
+
+
 def run_batch(videos, vocabulary, client, db, log_clip, replace_clip, logged_sources,
               force=False, project_id="notld_1968", log=print) -> tuple[int, list[str], list[str]]:
     """Log every clip in `videos`, one at a time.
 
     A clip whose name is already logged in ClickHouse is skipped, not
     re-ingested - re-running a batch after a partial failure must not spend
-    an API call on clips it already has. `force=True` bypasses the skip, for
-    when the logging prompt changed and fresh results are wanted deliberately.
+    an API call on clips it already has. But a clip that was re-cut after it
+    was logged - same camera-roll filename, newer content - must not be
+    skipped: skipping it would leave the archive describing the old picture.
+    `force=True` bypasses the skip entirely, for when the logging prompt
+    changed and fresh results are wanted for everything.
 
     A clip that raises is recorded as failed and the batch continues - a
     stuck or rate-limited clip should not cost the rest of the run. Returns
@@ -56,13 +76,17 @@ def run_batch(videos, vocabulary, client, db, log_clip, replace_clip, logged_sou
     total = 0
     failed: list[str] = []
     skipped: list[str] = []
-    already_logged = set() if force else logged_sources(db, project_id)
+    already_logged = {} if force else logged_sources(db, project_id)
     for index, video in enumerate(videos, start=1):
-        if video.name in already_logged:
+        last_ingested = already_logged.get(video.name)
+        if last_ingested is not None and not _clip_is_stale(video, last_ingested):
             log(f"[{index}/{len(videos)}] {video.name} - already logged, skipping")
             skipped.append(video.name)
             continue
-        log(f"[{index}/{len(videos)}] {video.name}")
+        if last_ingested is not None:
+            log(f"[{index}/{len(videos)}] {video.name} - re-cut since last ingest, replacing")
+        else:
+            log(f"[{index}/{len(videos)}] {video.name}")
         try:
             start = time.perf_counter()
             rows = log_clip(video, vocabulary, client)

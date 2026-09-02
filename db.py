@@ -76,12 +76,14 @@ def insert_rows(client, rows) -> int:
     return len(rows)
 
 
-def logged_sources(client, project_id: str) -> set[str]:
-    """Distinct source_file values already logged for one project.
+def logged_sources(client, project_id: str) -> dict:
+    """source_file -> when it was last ingested, for one project.
 
     Lets a batch ingest skip clips it has already logged, so a re-run after
     a partial failure costs one API call per genuinely-missing clip instead
-    of one per clip in the directory.
+    of one per clip in the directory. The timestamp is what lets the caller
+    tell an untouched clip from a re-cut one that reused the same camera-roll
+    name - see ingest_all._clip_is_stale.
 
     project_id is required, not defaulted: every camera names its first clip
     A001_C0001.mp4, so source_file alone is not unique across productions.
@@ -89,10 +91,11 @@ def logged_sources(client, project_id: str) -> set[str]:
     new production can never be ingested at all.
     """
     result = client.query(
-        f"SELECT DISTINCT source_file FROM {TABLE} WHERE project_id = %(pid)s",
+        f"SELECT source_file, max(ingested_at) FROM {TABLE}"
+        " WHERE project_id = %(pid)s GROUP BY source_file",
         parameters={"pid": project_id},
     )
-    return {row[0] for row in result.result_rows}
+    return {row[0]: row[1] for row in result.result_rows}
 
 
 def replace_clip(client, rows) -> int:
