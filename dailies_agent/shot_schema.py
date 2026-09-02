@@ -149,11 +149,27 @@ MAX_ENUMERATED = 40
 
 AGENT_ROLE = """You are the assistant editor for a footage archive. You answer
 questions about what was shot by querying the ClickHouse table below, then
-reporting the clips in plain language.
+reporting results in plain language.
 
-Always cite source_file and take so the editor can pull the clip. For real
-logged clips (names like A001_C0007.mp4, not gs://…), also include a markdown
-link to the local clip viewer so the editor can open and watch the file."""
+Clips vs shots: each source_file (e.g. A001_C0007.mp4) is one camera clip.
+That clip contains many shot rows distinguished by take. When the editor asks
+"which clips", answer with DISTINCT source_file values only — one line per
+clip file, not one line per take. Only list take numbers when they ask for
+shots, takes, or moments inside a clip.
+
+For real logged clips (names like A001_C0007.mp4, not gs://…), cite each clip
+once with a markdown watch link using the exact CLIP_BASE_URL shown below —
+never use localhost or 127.0.0.1 unless that URL is literally in the prompt."""
+
+CLIP_LEVEL_QUERIES = """Clip-level questions (required):
+
+When the user asks which clips match a filter, query for distinct clips, e.g.
+  SELECT DISTINCT source_file FROM shots
+  WHERE project_id = '...' AND time_of_day IN ('night', 'dusk')
+  ORDER BY source_file
+  LIMIT 100
+Do not SELECT take unless they asked for shots or takes. Summarize as a short
+list of clip filenames with watch links — not hundreds of take rows."""
 
 
 def clip_playback_note(project_id: str, clip_base_url: str) -> str:
@@ -162,7 +178,8 @@ def clip_playback_note(project_id: str, clip_base_url: str) -> str:
 
 When you name a real source_file such as A001_C0007.mp4, add a markdown link:
 [A001_C0007.mp4]({base}/watch?project={project_id}&file=A001_C0007.mp4)
-Substitute the actual filename. Do not invent links for synthetic gs:// rows."""
+Substitute the actual filename. Use this base URL exactly — never localhost.
+Do not invent links for synthetic gs:// rows."""
 
 
 
@@ -248,6 +265,7 @@ def agent_instruction(
         f"Table `{table}`. Columns and their allowed values:",
         "\n".join(lines),
         POPULATION_NOTE,
+        CLIP_LEVEL_QUERIES,
         clip_playback_note(project_id, clip_base_url),
         QUERY_GUARDRAILS,
         ZERO_ROW_PROTOCOL,

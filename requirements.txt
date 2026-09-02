@@ -9,6 +9,13 @@ python-dotenv
 fastapi
 python-multipart
 uvicorn
+google-api-python-client
+# Only needed for the Vertex ingest path: Vertex has no Files API, so
+# clips reach it as gs:// objects. The Developer-key path needs none of this.
+google-cloud-storage
+google-auth
+google-auth-httplib2
+google-auth-oauthlib
 
 # Kept here rather than a separate dev file so that the README's install
 # line is enough to run the test suite the README tells you to run.

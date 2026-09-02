@@ -4,7 +4,7 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir fastapi==0.115.12 uvicorn[standard]==0.34.2
+RUN pip install --no-cache-dir fastapi==0.115.12 uvicorn[standard]==0.34.2 google-cloud-storage==3.13.1
 
 COPY projects.py watch_server.py ./
 COPY assets/clips ./assets/clips

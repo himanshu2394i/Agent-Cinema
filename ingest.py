@@ -10,15 +10,17 @@ poisons every query that filters on it afterwards. Cheap check, expensive bug.
 """
 
 import json
+import os
 import time
 from pathlib import Path
 
 from shot_schema import MODEL_FIELDS, allowed_values, shot_response_schema
 from vocab import ProjectVocabulary
 
-# ponytail: flash until video captions prove it too weak; the pro tier is
-# a one-word change and only ingest quality would justify the cost.
-DEFAULT_MODEL = "gemini-3.6-flash"
+# Vertex and Developer API do not share the same model catalog. 2.5-flash
+# works on Vertex; 3.6-flash on the Developer API. See ingest_model().
+VERTEX_DEFAULT_MODEL = "gemini-2.5-flash"
+DEVELOPER_DEFAULT_MODEL = "gemini-3.6-flash"
 
 VIDEO_MIME = "video/mp4"
 
@@ -52,6 +54,74 @@ as short clauses separated by semicolons, naming the character each clause
 belongs to. A later pass compares these across takes of the same setup, so
 describe the same detail the same way every time, and omit anything you
 cannot actually see rather than guessing at it."""
+
+
+def _vertex_enabled() -> bool:
+    return os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def ingest_model() -> str:
+    """Return a model id that works on the active Gemini backend.
+
+    INGEST_MODEL overrides everything. On Vertex, fall back to AGENT_MODEL
+    then 2.5-flash. On the Developer API, use 3.6-flash — 2.5 is retired there.
+    """
+    override = os.getenv("INGEST_MODEL", "").strip()
+    if override:
+        return override
+    if _vertex_enabled():
+        return os.getenv("AGENT_MODEL", VERTEX_DEFAULT_MODEL)
+    return DEVELOPER_DEFAULT_MODEL
+
+
+def upload_to_gcs(
+    video: Path,
+    bucket: str,
+    storage_client=None,
+    project_id: str | None = None,
+) -> str:
+    """Put a clip in Cloud Storage and return its gs:// URI.
+
+    This is the only path that works on Vertex. Vertex has no Files API, so
+    `client.files.upload` raises there whatever the quota says - the Developer
+    client is not a smaller Vertex, it is a different backend.
+
+    Clips are namespaced by project because a bucket is as flat as the shots
+    table was: every camera names its first clip A001_C0001.mp4, and two
+    productions sharing a bucket would overwrite each other's footage.
+    """
+    if not bucket:
+        raise ValueError("no bucket configured; set GCS_INGEST_BUCKET")
+    if storage_client is None:
+        from google.cloud import storage
+
+        storage_client = storage.Client()
+    name = f"{project_id}/{video.name}" if project_id else video.name
+    blob = storage_client.bucket(bucket).blob(name)
+    blob.upload_from_filename(str(video), content_type=VIDEO_MIME)
+    return f"{GCS_PREFIX}{bucket}/{name}"
+
+
+def clip_uri(
+    video: Path,
+    client,
+    bucket: str | None = None,
+    storage_client=None,
+    project_id: str | None = None,
+) -> str:
+    """A URI log_clip accepts, via whichever backend is configured.
+
+    Bucket set -> Cloud Storage, which Vertex can read and which has no daily
+    cap. No bucket -> the Files API, which only the Developer client serves
+    and which the free tier caps at twenty requests a day.
+    """
+    if bucket:
+        return upload_to_gcs(video, bucket, storage_client, project_id)
+    return upload(video, client)
 
 
 def upload(video: Path, client) -> str:
@@ -130,7 +200,7 @@ def log_clip(
     video_uri: str,
     vocabulary: ProjectVocabulary,
     client,
-    model: str = DEFAULT_MODEL,
+    model: str | None = None,
     source_file: str | None = None,
     project_id: str = "notld_1968",
 ) -> list[dict]:
@@ -146,6 +216,7 @@ def log_clip(
             f"video_uri must be a gs:// object or a Files API URI, got {video_uri!r}"
         )
 
+    model = model or ingest_model()
     response = client.models.generate_content(
         model=model,
         contents=[

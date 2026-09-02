@@ -89,6 +89,19 @@ which is what the logger needs to be tested against:
 
     .venv/Scripts/python.exe clips.py assets/notld_full.mp4 assets/clips 20 45
 
+The same trick runs a second production, `lailamajnu`, whose vocabulary comes
+from an original short screenplay of the public-domain Layla and Majnun legend
+(`scripts/write_laila_screenplay.py`) while its footage is stand-in clips cut
+from a feature. Worth knowing what that does to the logs, because it is
+visible in the rows: the *cast* transfers, because the film is an adaptation
+of the same legend, so `characters` comes back `Laila`, `Qays`, `Children`
+rather than `unknown`. The *geography* does not - the legend says Desert Camp
+and Kaaba, the film is set in Kashmir, so `location` is `unknown` on every
+row. `scene` is `unknown` too, as it is for any finished feature: no slate.
+That gap is the honest shape of a vocabulary and a corpus that do not share a
+production, and it is worth saying out loud in a demo rather than letting a
+viewer find it.
+
 Then log one clip end to end, and open the agent:
 
     .venv/Scripts/python.exe db.py init
@@ -96,8 +109,10 @@ Then log one clip end to end, and open the agent:
     .venv/Scripts/adk.exe web
 
 `smoke.py` must run before `adk web`: it writes `assets/vocabulary.json`, and
-the agent builds its system prompt from that file at import time. Without it
-you get a `FileNotFoundError` naming the missing file.
+the agent builds its system prompt from that file. The prompt is built per
+turn rather than at import, so a missing vocabulary is not a crash - the agent
+answers by telling you which projects it does have a screenplay for, and
+refuses to query until you pick one.
 
 `adk web` reads `dailies_agent/` from the current directory, so run it from
 the project root. Its first run on a machine asks (once) whether to enable
@@ -121,9 +136,54 @@ project:
 
     .venv/Scripts/python.exe -m uvicorn projects_api:app --reload --port 8080
 
-Open http://127.0.0.1:8080/onboard. After uploading clips, ingest from the CLI
-the wizard shows, set `PROJECT_ID` in `.env` to your project slug, and run
-`adk web`.
+Open http://127.0.0.1:8080/onboard. After clips are on disk (upload or Drive
+sync), ingest from the CLI the wizard shows, then run `adk web`.
+
+### Switching production mid-session
+
+One `adk web` process serves every production. `PROJECT_ID` in `.env` is only
+the project a *new* session starts on; the session's own state wins over it.
+To point a session at another movie, ask in plain English:
+
+    use project lailamajnu
+
+That calls the agent's `set_active_project` tool, which stores the slug in
+session state and rebuilds the prompt from that project's vocabulary on the
+same turn - no restart, no `.env` edit. Ask "which projects do you have?" and
+it lists every project whose screenplay has been parsed. A slug with no
+parsed screenplay is refused rather than silently queried, because filtering
+`project_id` on a project that logged nothing returns zero rows and looks
+identical to an empty archive.
+
+### Google Drive folder (ongoing dailies)
+
+Do **not** use `gcloud auth application-default login` for Drive — Google
+blocks the Cloud SDK app on that sensitive scope ("This app is blocked").
+Service-account JSON keys are also blocked by org policy.
+
+1. [OAuth consent screen](https://console.cloud.google.com/apis/credentials/consent?project=devpost-506321)
+   → **External** → **Testing** (do not publish).
+2. Add scope `https://www.googleapis.com/auth/drive.readonly`.
+3. **Test users** → add the Google account that owns the dailies folder.
+4. [Credentials](https://console.cloud.google.com/apis/credentials?project=devpost-506321)
+   → **Create credentials** → **OAuth client ID** → type **Desktop app**
+   (not the existing Web client). Download JSON as `client_secret.json`
+   in the repo root (gitignored).
+5. Add scope `https://www.googleapis.com/auth/drive` (See, edit, create,
+   and delete all Google Drive files) — needed to create `Project1` folders.
+6. Login / re-login (must allow edit, not view-only):
+
+        .venv/Scripts/python.exe drive_sync.py login
+
+   Then seed a movie folder under the parent dailies Drive folder:
+
+        $env:DRIVE_DAILIES_FOLDER_ID="1nymloBR2S7nuELOyzbaYgi3Y3onOhxXY"
+        .venv/Scripts/python.exe drive_sync.py bootstrap Project1
+
+Keep `uvicorn projects_api` running — it polls every 2 minutes. Paste the
+folder URL in `/onboard`. Or:
+
+    curl -X POST http://127.0.0.1:8080/projects/my-film/drive -H "Content-Type: application/json" -d "{\"folder\":\"https://drive.google.com/drive/folders/FILE_ID\"}"
 
 ## Watching clips the agent cites
 

@@ -22,28 +22,45 @@
 </head>
 <body>
   <h1>New production</h1>
-  <p class="sub">Screenplay → vocabulary → clips → ask questions.</p>
+  <p class="sub">Screenplay → vocabulary → clips (upload or Drive folder) → ask questions.</p>
 
   <section id="step-create">
     <h2>1. Create project</h2>
+    <label>Continue existing</label>
+    <select id="project-pick">
+      <option value="">— new production —</option>
+    </select>
     <label>Project id (slug)</label>
-    <input id="project-id" type="text" placeholder="my-film-2026">
-    <label>Display name</label>
-    <input id="project-name" type="text" placeholder="My Film">
+    <input id="project-id" type="text" placeholder="project2">
+    <label>Display name (Drive folder name under dailies)</label>
+    <input id="project-name" type="text" placeholder="Project2">
     <button id="btn-create">Create</button>
     <p id="create-msg"></p>
   </section>
 
   <section id="step-screenplay" hidden>
-    <h2>2. Upload screenplay (PDF)</h2>
-    <input id="screenplay-file" type="file" accept=".pdf">
-    <button id="btn-screenplay">Parse screenplay</button>
+    <h2>2. Screenplay &amp; vocabulary</h2>
+    <p id="screenplay-ready" class="ok" hidden></p>
+    <div id="screenplay-upload">
+      <p class="sub">Upload a PDF to parse cast, locations, props and scenes into the project schema.</p>
+      <input id="screenplay-file" type="file" accept=".pdf">
+      <button id="btn-screenplay">Parse screenplay</button>
+    </div>
     <p id="screenplay-msg"></p>
     <pre id="vocab-preview" hidden></pre>
   </section>
 
   <section id="step-clips" hidden>
-    <h2>3. Upload clips (.mp4)</h2>
+    <h2>3. Clips — keep adding as the shoot continues</h2>
+    <p class="sub" id="clips-help">Drop mp4s into this movie’s Drive folder. We poll every 2 minutes. Uploading here also copies the file to that Drive folder.</p>
+    <p id="drive-linked" class="ok" hidden></p>
+    <div id="drive-manual">
+      <label>Google Drive folder URL (only if this project has no folder yet)</label>
+      <input id="drive-folder" type="text" placeholder="https://drive.google.com/drive/folders/...">
+      <button id="btn-drive">Save folder + sync now</button>
+      <p id="drive-msg"></p>
+    </div>
+    <label>Upload .mp4 clips</label>
     <input id="clips-file" type="file" accept=".mp4" multiple>
     <button id="btn-clips">Upload clips</button>
     <p id="clips-msg"></p>
@@ -51,10 +68,16 @@
 
   <section id="step-chat" hidden>
     <h2>4. Open agent</h2>
-    <p>Clips are on disk. Run ingest locally, then chat:</p>
+    <p>Clips are on disk.</p>
+    <button id="btn-ingest">Ingest new clips</button>
+    <p id="ingest-msg"></p>
+    <p class="sub">Or run the same thing locally:</p>
     <pre id="ingest-cmd"></pre>
+    <p id="agent-hint" class="ok"></p>
     <p id="watch-hint" class="ok"></p>
     <p><a id="agent-link" href="/" target="_blank">Open ADK agent</a></p>
+    <p><a id="selects-link" href="#" target="_blank">Export select report</a></p>
+    <p class="sub" id="selects-hint"></p>
   </section>
 
   <script>
@@ -64,21 +87,35 @@
     async function api(path, opts = {}) {
       const res = await fetch(path, opts);
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.detail || res.statusText);
+      if (!res.ok) {
+        const d = body.detail;
+        let msg = res.statusText;
+        if (typeof d === 'string') msg = d;
+        else if (Array.isArray(d)) msg = d.map((x) => x.msg || JSON.stringify(x)).join('; ');
+        else if (d) msg = JSON.stringify(d);
+        throw new Error(msg);
+      }
       return body;
     }
 
     $('btn-create').onclick = async () => {
       projectId = $('project-id').value.trim();
       try {
-        await api('/projects', {
+        const created = await api('/projects', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: projectId, name: $('project-name').value.trim() || projectId }),
         });
+        projectId = created.id;
         $('create-msg').className = 'ok';
-        $('create-msg').textContent = `Created ${projectId}`;
+        $('create-msg').textContent = created.drive_folder_id
+          ? `Created ${projectId} — Drive folder ready (drop mp4s there; we poll every 2 min)`
+          : `Created ${projectId}`;
         $('step-screenplay').hidden = false;
+        $('step-clips').hidden = false;
+        showDriveState(created.drive_folder_id);
+        if (created.drive_folder_id) showChatStep();
+        history.replaceState({}, '', `/onboard?project=${encodeURIComponent(projectId)}`);
       } catch (e) {
         $('create-msg').className = 'error';
         $('create-msg').textContent = e.message;
@@ -97,9 +134,204 @@
         $('vocab-preview').hidden = false;
         $('vocab-preview').textContent = JSON.stringify(vocab, null, 2);
         $('step-clips').hidden = false;
+        const status = await api(`/projects/${projectId}`);
+        showScreenplayReady(status);
       } catch (e) {
         $('screenplay-msg').className = 'error';
         $('screenplay-msg').textContent = e.message;
+      }
+    };
+
+    function showDriveState(folderId) {
+      const linked = $('drive-linked');
+      $('drive-manual').hidden = Boolean(folderId);
+      linked.hidden = !folderId;
+      if (!folderId) return;
+      linked.textContent = 'Drive folder linked — drop mp4s here: ';
+      const a = document.createElement('a');
+      a.href = `https://drive.google.com/drive/folders/${encodeURIComponent(folderId)}`;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = 'open in Drive';
+      linked.append(a);
+    }
+
+    function showChatStep() {
+      $('step-chat').hidden = false;
+      $('ingest-cmd').textContent =
+        `.venv/Scripts/python.exe ingest_all.py assets/projects/${projectId}/clips --project ${projectId}`;
+      $('agent-link').href = '/';
+      $('agent-hint').textContent =
+        `In the agent, type: use project ${projectId} — one adk web process serves every production, so this scopes the session without a restart.`;
+      $('watch-hint').textContent =
+        `Keep uvicorn on :8080 — Drive sync runs every 2 minutes. Watch links: /watch?project=${projectId}&file=A001_C0007.mp4`;
+      $('selects-link').href = `/projects/${projectId}/selects.csv`;
+      $('selects-hint').textContent =
+        'The selects circled so far — take, score, and the reason each was picked.';
+    }
+
+    let ingestPollTimer = null;
+
+    function stopIngestPoll() {
+      if (ingestPollTimer) {
+        clearTimeout(ingestPollTimer);
+        ingestPollTimer = null;
+      }
+    }
+
+    function renderIngestStatus(status) {
+      $('btn-ingest').disabled = status.running;
+      const msg = $('ingest-msg');
+      if (status.running) {
+        msg.className = '';
+        msg.textContent = 'Ingesting…';
+        return;
+      }
+      if (status.error) {
+        msg.className = 'error';
+        msg.textContent = `Ingest failed: ${status.error}`;
+        return;
+      }
+      let text = `Ingest done — ${status.done} clip(s) logged`;
+      if (status.skipped.length) text += `, ${status.skipped.length} already up to date`;
+      if (status.failed.length) text += `, ${status.failed.length} failed (${status.failed.join(', ')})`;
+      msg.className = status.failed.length ? 'error' : 'ok';
+      msg.textContent = text;
+    }
+
+    function pollIngestStatus() {
+      api(`/projects/${projectId}/ingest`).then((status) => {
+        renderIngestStatus(status);
+        if (status.running) {
+          ingestPollTimer = setTimeout(pollIngestStatus, 2000);
+        } else {
+          stopIngestPoll();
+        }
+      }).catch((e) => {
+        stopIngestPoll();
+        $('btn-ingest').disabled = false;
+        $('ingest-msg').className = 'error';
+        $('ingest-msg').textContent = e.message;
+      });
+    }
+
+    $('btn-ingest').onclick = async () => {
+      $('btn-ingest').disabled = true;
+      $('ingest-msg').className = '';
+      $('ingest-msg').textContent = 'Starting ingest…';
+      stopIngestPoll();
+      try {
+        const status = await api(`/projects/${projectId}/ingest`, { method: 'POST' });
+        renderIngestStatus(status);
+        if (status.running) ingestPollTimer = setTimeout(pollIngestStatus, 2000);
+      } catch (e) {
+        $('btn-ingest').disabled = false;
+        $('ingest-msg').className = 'error';
+        $('ingest-msg').textContent = e.message;
+      }
+    };
+
+    function showScreenplayReady(status) {
+      const ready = $('screenplay-ready');
+      const upload = $('screenplay-upload');
+      if (!status.has_vocabulary) {
+        ready.hidden = true;
+        upload.hidden = false;
+        return;
+      }
+      ready.hidden = false;
+      upload.hidden = true;
+      let text = 'Production package ready — screenplay and vocabulary on disk.';
+      ready.textContent = text + ' ';
+      if (status.has_screenplay) {
+        const a = document.createElement('a');
+        a.href = `/projects/${encodeURIComponent(status.id)}/screenplay.pdf`;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = 'Open screenplay PDF';
+        ready.append(a);
+      }
+    }
+
+    async function resume(id) {
+      projectId = id;
+      const status = await api(`/projects/${id}`);
+      $('project-id').value = status.id;
+      $('project-name').value = status.name;
+      $('create-msg').className = 'ok';
+      $('create-msg').textContent = status.drive_folder_id
+        ? `Resumed ${status.id} (${status.clip_count} clip(s) on disk). Drive folder is linked.`
+        : `Resumed ${status.id}`;
+      $('step-screenplay').hidden = false;
+      $('step-clips').hidden = false;
+      showScreenplayReady(status);
+      showDriveState(status.drive_folder_id);
+      if (status.has_vocabulary) {
+        try {
+          const vocab = await api(`/projects/${id}/vocabulary`);
+          $('vocab-preview').hidden = false;
+          $('vocab-preview').textContent = JSON.stringify(vocab, null, 2);
+          $('screenplay-msg').className = 'ok';
+          $('screenplay-msg').textContent =
+            `${vocab.scenes.length} scenes · ${vocab.characters.length} characters · ${vocab.locations.length} locations`;
+        } catch (_) { /* none */ }
+      }
+      if (status.clip_count > 0 || status.drive_folder_id) showChatStep();
+      history.replaceState({}, '', `/onboard?project=${encodeURIComponent(id)}`);
+    }
+
+    $('project-pick').onchange = async () => {
+      const id = $('project-pick').value;
+      if (!id) return;
+      try { await resume(id); } catch (e) {
+        $('create-msg').className = 'error';
+        $('create-msg').textContent = e.message;
+      }
+    };
+
+    (async () => {
+      try {
+        const listed = await api('/projects');
+        const pick = $('project-pick');
+        for (const p of listed) {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = `${p.name} (${p.id})`;
+          pick.appendChild(opt);
+        }
+        const wanted = new URLSearchParams(location.search).get('project')
+          || (listed.some((p) => p.id === 'lailamajnu') ? 'lailamajnu' : '')
+          || (listed.length ? listed[listed.length - 1].id : '');
+        if (wanted && listed.some((p) => p.id === wanted)) {
+          pick.value = wanted;
+          await resume(wanted);
+        }
+      } catch (_) { /* API down */ }
+    })();
+
+    $('btn-drive').onclick = async () => {
+      const folder = $('drive-folder').value.trim();
+      if (!folder) return;
+      try {
+        const linkedFolder = await api(`/projects/${projectId}/drive`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folder }),
+        });
+        showDriveState(linkedFolder.drive_folder_id);
+        let extra = '';
+        try {
+          const synced = await api(`/projects/${projectId}/drive/sync`, { method: 'POST' });
+          extra = ` Synced ${synced.downloaded.length} new clip(s), skipped ${synced.skipped.length}.`;
+        } catch (syncErr) {
+          extra = ` Folder saved; background poll will retry (${syncErr.message}).`;
+        }
+        $('drive-msg').className = 'ok';
+        $('drive-msg').textContent = 'Drive folder linked.' + extra;
+        showChatStep();
+      } catch (e) {
+        $('drive-msg').className = 'error';
+        $('drive-msg').textContent = e.message;
       }
     };
 
@@ -114,12 +346,7 @@
         }
         $('clips-msg').className = 'ok';
         $('clips-msg').textContent = `Uploaded ${files.length} clip(s)`;
-        $('step-chat').hidden = false;
-        $('ingest-cmd').textContent =
-          `.venv/Scripts/python.exe ingest_all.py assets/projects/${projectId}/clips --project ${projectId}`;
-        $('agent-link').href = `/?project_id=${projectId}`;
-        $('watch-hint').textContent =
-          `Keep uvicorn on :8080 so agent answers can open /watch?project=${projectId}&file=A001_C0007.mp4`;
+        showChatStep();
       } catch (e) {
         $('clips-msg').className = 'error';
         $('clips-msg').textContent = e.message;

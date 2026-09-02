@@ -1,10 +1,16 @@
-"""Cut a feature into evenly spread clips that stand in for dailies.
+"""Cut a feature into clips that stand in for dailies.
 
 A finished film is not dailies - it has no takes and no slate - but its
 shots are real photography with real coverage, which is what the logger
 needs to be tested against.
 
+Sample N windows across the film (gaps between clips):
+
     python clips.py assets/notld_full.mp4 assets/clips 20 45
+
+Tile the usable duration with no gaps (last clip may be shorter):
+
+    python clips.py assets/notld_full.mp4 assets/clips cover 45
 """
 
 import subprocess
@@ -33,6 +39,31 @@ def cut_plan(
     ]
 
 
+def cover_plan(
+    duration_s: float, clip_s: float, trim_s: float = 0.0
+) -> list[tuple[float, float]]:
+    """Back-to-back (start, end) pairs covering usable film, no sampling gaps.
+
+    `trim_s` still drops credits at each end. The last clip is shorter when
+    usable duration is not an exact multiple of `clip_s`.
+    """
+    if clip_s <= 0:
+        raise ValueError(f"clip length must be positive, got {clip_s}")
+    start = trim_s
+    end_limit = duration_s - trim_s
+    usable = end_limit - start
+    if usable <= 0:
+        raise ValueError(f"no usable film after trim_s={trim_s} on {duration_s}s")
+    plan: list[tuple[float, float]] = []
+    t = start
+    while t + clip_s <= end_limit + 1e-9:
+        plan.append((round(t, 1), round(t + clip_s, 1)))
+        t += clip_s
+    if end_limit - t >= 1.0:
+        plan.append((round(t, 1), round(end_limit, 1)))
+    return plan
+
+
 def duration_of(video: Path) -> float:
     out = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -43,9 +74,14 @@ def duration_of(video: Path) -> float:
 
 
 def cut(video: Path, out_dir: Path, clip_s: float, count: int,
-        trim_s: float) -> list[Path]:
+        trim_s: float, cover: bool = False) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
-    plan = cut_plan(duration_of(video), clip_s, count, trim_s)
+    duration = duration_of(video)
+    plan = (
+        cover_plan(duration, clip_s, trim_s)
+        if cover
+        else cut_plan(duration, clip_s, count, trim_s)
+    )
     written = []
     for index, (start, end) in enumerate(plan, start=1):
         # Reel/clip naming mirrors a camera roll, so source_file reads like
@@ -66,9 +102,15 @@ def main() -> int:
     if len(sys.argv) < 3:
         print(__doc__)
         return 2
-    count = int(sys.argv[3]) if len(sys.argv) > 3 else 20
-    clip_s = float(sys.argv[4]) if len(sys.argv) > 4 else 45.0
-    cut(Path(sys.argv[1]), Path(sys.argv[2]), clip_s, count, trim_s=120.0)
+    cover = len(sys.argv) > 3 and sys.argv[3] == "cover"
+    if cover:
+        clip_s = float(sys.argv[4]) if len(sys.argv) > 4 else 45.0
+        cut(Path(sys.argv[1]), Path(sys.argv[2]), clip_s, count=0,
+            trim_s=120.0, cover=True)
+    else:
+        count = int(sys.argv[3]) if len(sys.argv) > 3 else 20
+        clip_s = float(sys.argv[4]) if len(sys.argv) > 4 else 45.0
+        cut(Path(sys.argv[1]), Path(sys.argv[2]), clip_s, count, trim_s=120.0)
     return 0
 
 
