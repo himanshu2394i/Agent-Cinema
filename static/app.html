@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dailies Triage</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ink: #16181C;
+      --ink-dim: #1D2025;
+      --ink-line: #33373E;
+      --canary: #F5EDD1;
+      --canary-dim: #ece2c2;
+      --carbon: #2A2723;
+      --slate: #3F4A52;
+      --grease: #C0281E;
+      --font-label: 'Archivo Condensed', 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif;
+      --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --font-body: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--ink);
+      color: var(--canary);
+      font-family: var(--font-body);
+    }
+
+    a { color: inherit; }
+
+    button, input {
+      font-family: inherit;
+      font-size: inherit;
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--grease);
+      outline-offset: 2px;
+    }
+
+    /* ---------- top bar ---------- */
+
+    header.topbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem 1.25rem;
+      padding: 0.75rem 1.25rem;
+      background: var(--ink);
+      border-bottom: 1px solid var(--ink-line);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .brand {
+      font-family: var(--font-label);
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: var(--canary);
+      white-space: nowrap;
+    }
+
+    .field-label {
+      font-family: var(--font-label);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 0.7rem;
+      color: #9a9d9f;
+    }
+
+    select#project-pick {
+      background: var(--ink-dim);
+      color: var(--canary);
+      border: 1px solid var(--ink-line);
+      border-radius: 3px;
+      padding: 0.35rem 0.5rem;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+    }
+
+    #active-badge {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--canary);
+      padding: 0.2rem 0.55rem;
+      border: 1px solid var(--ink-line);
+      border-radius: 999px;
+      background: var(--ink-dim);
+    }
+    #active-badge.down { color: #e5a3a3; border-color: #5a2c2c; }
+
+    .topbar-links {
+      margin-left: auto;
+      display: flex;
+      gap: 1rem;
+      font-family: var(--font-label);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 0.75rem;
+    }
+
+    .topbar-links a[aria-disabled="true"] {
+      color: #5a5d60;
+      pointer-events: none;
+    }
+
+    /* ---------- two-ground layout ---------- */
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr;
+      grid-template-areas: "bay report";
+      align-items: start;
+    }
+
+    @media (max-width: 900px) {
+      .layout { display: block; }
+    }
+
+    .bay {
+      grid-area: bay;
+      background: var(--ink);
+      min-height: calc(100vh - 58px);
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .report {
+      grid-area: report;
+      background: var(--canary);
+      color: var(--carbon);
+      min-height: calc(100vh - 58px);
+      padding: 1.25rem;
+      border-left: 1px solid #00000022;
+    }
+
+    @media (max-width: 900px) {
+      .bay, .report { min-height: 0; }
+    }
+
+    /* ---------- viewer ---------- */
+
+    .viewer {
+      background: #000;
+      border: 1px solid var(--ink-line);
+      border-radius: 4px;
+      aspect-ratio: 16 / 9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .viewer video { width: 100%; height: 100%; }
+
+    .viewer-empty {
+      color: #6d7073;
+      font-family: var(--font-label);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-size: 0.85rem;
+      text-align: center;
+      padding: 1rem;
+    }
+
+    .viewer-filename {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: #b9bcbe;
+      min-height: 1.1em;
+    }
+
+    /* ---------- transcript ---------- */
+
+    .transcript {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.9rem;
+      padding-right: 0.25rem;
+      min-height: 8rem;
+    }
+
+    .transcript-empty {
+      color: #9a9d9f;
+      font-style: italic;
+    }
+
+    .turn-label {
+      font-family: var(--font-label);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-size: 0.7rem;
+      color: #9a9d9f;
+      margin-bottom: 0.15rem;
+    }
+
+    .turn-q .turn-label { color: #7fa0c9; }
+    .turn-a .turn-label { color: #d8b979; }
+    .turn-err .turn-label { color: #e5a3a3; }
+
+    .turn-body {
+      font-size: 1rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .turn-err .turn-body { color: #e5a3a3; font-family: var(--font-mono); font-size: 0.85rem; }
+
+    .turn-body a.clip-link {
+      color: #d8b979;
+      text-decoration: underline;
+      text-decoration-style: dotted;
+      cursor: pointer;
+    }
+
+    .turn-body a.clip-link:hover { color: #f0d18a; }
+
+    /* ---------- ask form ---------- */
+
+    #ask-form {
+      display: flex;
+      gap: 0.5rem;
+      border-top: 1px solid var(--ink-line);
+      padding-top: 0.9rem;
+    }
+
+    #ask-input {
+      flex: 1;
+      background: var(--ink-dim);
+      border: 1px solid var(--ink-line);
+      color: var(--canary);
+      border-radius: 3px;
+      padding: 0.55rem 0.7rem;
+      font-family: var(--font-body);
+    }
+
+    #ask-input::placeholder { color: #6d7073; }
+
+    #ask-submit {
+      background: var(--canary);
+      color: var(--carbon);
+      border: 0;
+      border-radius: 3px;
+      padding: 0.55rem 1.1rem;
+      font-family: var(--font-label);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 700;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+
+    #ask-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ---------- report (camera report) ---------- */
+
+    .report h2 {
+      font-family: var(--font-label);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-size: 0.85rem;
+      margin: 0 0 0.15rem;
+      border-bottom: 2px solid var(--carbon);
+      padding-bottom: 0.5rem;
+    }
+
+    .report .roll-line {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--slate);
+      margin: 0.4rem 0 1rem;
+    }
+
+    .table-scroll {
+      overflow-x: auto;
+    }
+
+    table.report-table {
+      width: 100%;
+      min-width: 30rem;
+      border-collapse: collapse;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+    }
+
+    table.report-table th {
+      text-align: left;
+      font-family: var(--font-label);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 700;
+      font-size: 0.68rem;
+      color: var(--slate);
+      border-bottom: 1px solid var(--carbon);
+      padding: 0.3rem 0.4rem;
+    }
+
+    table.report-table td {
+      padding: 0.45rem 0.4rem;
+      border-bottom: 1px solid #00000018;
+      vertical-align: top;
+    }
+
+    table.report-table tbody tr {
+      cursor: pointer;
+    }
+
+    table.report-table tbody tr:hover,
+    table.report-table tbody tr:focus-visible {
+      background: #00000010;
+    }
+
+    td.note-cell {
+      font-family: var(--font-body);
+      font-size: 0.9rem;
+    }
+
+    .take-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2.1rem;
+      height: 2.1rem;
+    }
+
+    .take-num {
+      position: relative;
+      z-index: 1;
+      font-weight: 600;
+    }
+
+    svg.take-ring {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+
+    svg.take-ring circle {
+      fill: none;
+      stroke: var(--grease);
+      stroke-width: 2.5;
+      stroke-dasharray: 101;
+      stroke-dashoffset: 101;
+      opacity: 0;
+      transform-origin: center;
+      transform: rotate(-90deg);
+      transition: stroke-dashoffset 0.4s ease, opacity 0.05s linear;
+    }
+
+    tr.circled svg.take-ring circle {
+      stroke-dashoffset: 0;
+      opacity: 1;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      svg.take-ring circle { transition: none; }
+    }
+
+    .report-empty {
+      color: var(--slate);
+      font-style: italic;
+      margin-top: 1rem;
+    }
+
+    .report-export {
+      margin-top: 1.25rem;
+      padding-top: 0.9rem;
+      border-top: 1px solid var(--carbon);
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .report-export a {
+      font-family: var(--font-label);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-decoration: none;
+      border-bottom: 2px solid var(--carbon);
+      padding-bottom: 0.1rem;
+    }
+
+    .report-export .count {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--slate);
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">Dailies Triage</span>
+    <span class="field-label">Production</span>
+    <select id="project-pick" aria-label="Pick the production"></select>
+    <span id="active-badge">no production picked</span>
+    <nav class="topbar-links">
+      <a id="trace-link" href="#" target="_blank" rel="noopener" aria-disabled="true">Evidence ledger</a>
+      <a href="/onboard">Onboard</a>
+    </nav>
+  </header>
+
+  <main class="layout">
+    <section class="report" aria-label="Camera report">
+      <h2>Select report</h2>
+      <p class="roll-line" id="roll-line">No production picked yet.</p>
+      <div id="report-body"></div>
+      <div class="report-export">
+        <a id="export-link" href="#">Export select report</a>
+        <span class="count" id="report-count"></span>
+      </div>
+    </section>
+
+    <section class="bay" aria-label="Viewer and conversation">
+      <div class="viewer" id="viewer-wrap">
+        <video id="viewer" controls playsinline hidden></video>
+        <p class="viewer-empty" id="viewer-empty">No footage loaded. Ask a question,
+          then click a clip link or a take to play it here.</p>
+      </div>
+      <p class="viewer-filename" id="viewer-filename"></p>
+
+      <div class="transcript" id="transcript" aria-live="polite">
+        <p class="transcript-empty">Ask for footage in plain English — try
+          &ldquo;best take of Laila at the well&rdquo; or &ldquo;what happens after the
+          wedding&rdquo;.</p>
+      </div>
+
+      <form id="ask-form">
+        <input id="ask-input" type="text" autocomplete="off"
+               placeholder="Ask about the footage…" aria-label="Ask the agent">
+        <button id="ask-submit" type="submit">Ask</button>
+      </form>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    let currentProject = '';
+    let session = null; // { session_id, user_id, app_name, project_id }
+
+    async function api(path, opts = {}) {
+      const res = await fetch(path, opts);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const d = body.detail;
+        let msg = res.statusText;
+        if (typeof d === 'string') msg = d;
+        else if (Array.isArray(d)) msg = d.map((x) => x.msg || JSON.stringify(x)).join('; ');
+        else if (d) msg = JSON.stringify(d);
+        throw new Error(msg);
+      }
+      return body;
+    }
+
+    // ---------- viewer ----------
+
+    function playClip(project, file) {
+      const video = $('viewer');
+      const empty = $('viewer-empty');
+      video.src = `/projects/${encodeURIComponent(project)}/media/${encodeURIComponent(file)}`;
+      video.hidden = false;
+      empty.hidden = true;
+      $('viewer-filename').textContent = file;
+      video.load();
+      video.play().catch(() => { /* autoplay can be refused; controls remain */ });
+      circleRowForClip(file);
+    }
+
+    function parseWatchUrl(href) {
+      let url;
+      try {
+        url = new URL(href, location.origin);
+      } catch (_) {
+        return null;
+      }
+      if (url.pathname !== '/watch') return null;
+      const project = url.searchParams.get('project');
+      const file = url.searchParams.get('file');
+      if (!project || !file) return null;
+      return { project, file };
+    }
+
+    // ---------- agent prose rendering (untrusted text -> DOM, never innerHTML) ----------
+
+    function renderAgentText(container, text) {
+      container.textContent = '';
+      const linkPattern = /\[([^\]]+)\]\((\S+?)\)/g;
+      let last = 0;
+      let match;
+      while ((match = linkPattern.exec(text)) !== null) {
+        if (match.index > last) {
+          container.appendChild(document.createTextNode(text.slice(last, match.index)));
+        }
+        const label = match[1];
+        const href = match[2];
+        const a = document.createElement('a');
+        a.textContent = label;
+        const watch = parseWatchUrl(href);
+        if (watch) {
+          a.href = href;
+          a.className = 'clip-link';
+          a.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            playClip(watch.project, watch.file);
+          });
+        } else {
+          a.href = href;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+        }
+        container.appendChild(a);
+        last = match.index + match[0].length;
+      }
+      if (last < text.length) {
+        container.appendChild(document.createTextNode(text.slice(last)));
+      }
+    }
+
+    // ---------- transcript ----------
+
+    function clearTranscriptEmptyState() {
+      const t = $('transcript');
+      const empty = t.querySelector('.transcript-empty');
+      if (empty) empty.remove();
+    }
+
+    function addTurn(kind, labelText, bodyText, isProse) {
+      clearTranscriptEmptyState();
+      const turn = document.createElement('div');
+      turn.className = `turn turn-${kind}`;
+      const label = document.createElement('div');
+      label.className = 'turn-label';
+      label.textContent = labelText;
+      const body = document.createElement('div');
+      body.className = 'turn-body';
+      if (isProse) {
+        renderAgentText(body, bodyText);
+      } else {
+        body.textContent = bodyText;
+      }
+      turn.append(label, body);
+      const t = $('transcript');
+      t.appendChild(turn);
+      t.scrollTop = t.scrollHeight;
+    }
+
+    // ---------- select report (the camera report) ----------
+
+    let currentSelects = [];
+
+    function takeRingCell(take) {
+      const wrap = document.createElement('span');
+      wrap.className = 'take-wrap';
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('class', 'take-ring');
+      svg.setAttribute('viewBox', '0 0 40 40');
+      svg.setAttribute('aria-hidden', 'true');
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', '20');
+      circle.setAttribute('cy', '20');
+      circle.setAttribute('r', '16');
+      svg.appendChild(circle);
+      const num = document.createElement('span');
+      num.className = 'take-num';
+      num.textContent = (take === null || take === undefined) ? '—' : String(take);
+      wrap.append(svg, num);
+      return wrap;
+    }
+
+    function circleRow(tr) {
+      document.querySelectorAll('#report-body tr.circled').forEach((row) => {
+        row.classList.remove('circled');
+      });
+      if (tr) tr.classList.add('circled');
+    }
+
+    function circleRowForClip(file) {
+      const rows = document.querySelectorAll('#report-body tr[data-clip]');
+      for (const row of rows) {
+        if (row.dataset.clip === file) {
+          circleRow(row);
+          return;
+        }
+      }
+    }
+
+    function renderSelects(items) {
+      currentSelects = items;
+      const container = $('report-body');
+      container.textContent = '';
+      $('report-count').textContent = items.length
+        ? `${items.length} take${items.length === 1 ? '' : 's'} circled`
+        : '';
+      if (!items.length) {
+        const p = document.createElement('p');
+        p.className = 'report-empty';
+        p.textContent = 'No takes circled yet. Ask for footage, then circle the ones you want.';
+        container.appendChild(p);
+        return;
+      }
+      const table = document.createElement('table');
+      table.className = 'report-table';
+      const thead = document.createElement('thead');
+      const headRow = document.createElement('tr');
+      ['Clip', 'Take', 'Score', 'Confidence', 'Note'].forEach((label) => {
+        const th = document.createElement('th');
+        th.textContent = label;
+        headRow.appendChild(th);
+      });
+      thead.appendChild(headRow);
+      const tbody = document.createElement('tbody');
+      for (const item of items) {
+        const tr = document.createElement('tr');
+        tr.tabIndex = 0;
+        if (item.clip) tr.dataset.clip = item.clip;
+
+        const tdClip = document.createElement('td');
+        tdClip.textContent = item.clip || '';
+        const tdTake = document.createElement('td');
+        tdTake.appendChild(takeRingCell(item.best_take));
+        const tdScore = document.createElement('td');
+        tdScore.textContent = (item.ranking_score === null || item.ranking_score === undefined)
+          ? '' : item.ranking_score;
+        const tdConf = document.createElement('td');
+        tdConf.textContent = item.confidence || '';
+        const tdNote = document.createElement('td');
+        tdNote.className = 'note-cell';
+        tdNote.textContent = item.selection_reason || '';
+
+        tr.append(tdClip, tdTake, tdScore, tdConf, tdNote);
+
+        const activate = () => {
+          circleRow(tr);
+          if (item.clip) playClip(currentProject, item.clip);
+        };
+        tr.addEventListener('click', activate);
+        tr.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter' || ev.key === ' ') {
+            ev.preventDefault();
+            activate();
+          }
+        });
+        tbody.appendChild(tr);
+      }
+      table.append(thead, tbody);
+      const scroller = document.createElement('div');
+      scroller.className = 'table-scroll';
+      scroller.appendChild(table);
+      container.appendChild(scroller);
+    }
+
+    async function loadSelects(projectId) {
+      try {
+        const data = await api(`/projects/${encodeURIComponent(projectId)}/selects.json`);
+        renderSelects(data.selects || []);
+      } catch (e) {
+        renderSelects([]);
+      }
+    }
+
+    // ---------- production picker ----------
+
+    function setActiveBadge(text, down) {
+      const badge = $('active-badge');
+      badge.textContent = text;
+      badge.classList.toggle('down', Boolean(down));
+    }
+
+    function updateTraceLink() {
+      const link = $('trace-link');
+      if (session) {
+        link.href = `/trace?session=${encodeURIComponent(session.session_id)}`
+          + `&user=${encodeURIComponent(session.user_id)}`
+          + `&app=${encodeURIComponent(session.app_name)}`;
+        link.removeAttribute('aria-disabled');
+      } else {
+        link.href = '#';
+        link.setAttribute('aria-disabled', 'true');
+      }
+    }
+
+    async function startSession(projectId) {
+      try {
+        session = await api(`/projects/${encodeURIComponent(projectId)}/session`, { method: 'POST' });
+        setActiveBadge(`active: ${projectId}`, false);
+      } catch (e) {
+        session = null;
+        setActiveBadge('agent unreachable', true);
+        addTurn('err', 'Can’t reach the agent', e.message, false);
+      }
+      updateTraceLink();
+    }
+
+    async function activateProject(projectId) {
+      currentProject = projectId;
+      session = null;
+      updateTraceLink();
+      $('roll-line').textContent = `ROLL — ${projectId}`;
+      $('export-link').href = `/projects/${encodeURIComponent(projectId)}/selects.csv`;
+      $('viewer').hidden = true;
+      $('viewer').removeAttribute('src');
+      $('viewer-empty').hidden = false;
+      $('viewer-filename').textContent = '';
+      setActiveBadge('connecting…', false);
+      await Promise.all([loadSelects(projectId), startSession(projectId)]);
+      history.replaceState({}, '', `/app?project=${encodeURIComponent(projectId)}`);
+    }
+
+    $('project-pick').onchange = () => {
+      const id = $('project-pick').value;
+      if (id) activateProject(id);
+    };
+
+    (async () => {
+      try {
+        const listed = await api('/projects');
+        const pick = $('project-pick');
+        for (const p of listed) {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = `${p.name} (${p.id}) — ${p.clip_count} clips`;
+          pick.appendChild(opt);
+        }
+        let serverDefault = '';
+        try {
+          serverDefault = (await api('/config')).default_project_id || '';
+        } catch (e) {
+          // /config unreachable - fall through to the first listed project.
+        }
+        const mostClips = listed.reduce(
+          (best, p) => (p.clip_count > (best?.clip_count ?? -1) ? p : best), null
+        );
+        const wanted = new URLSearchParams(location.search).get('project')
+          || (listed.some((p) => p.id === serverDefault) ? serverDefault : '')
+          || (mostClips ? mostClips.id : '')
+          || (listed.length ? listed[0].id : '');
+        if (wanted && listed.some((p) => p.id === wanted)) {
+          pick.value = wanted;
+          await activateProject(wanted);
+        }
+      } catch (e) {
+        setActiveBadge('projects API unreachable', true);
+      }
+    })();
+
+    // ---------- ask ----------
+
+    $('ask-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const input = $('ask-input');
+      const question = input.value.trim();
+      if (!question) return;
+      if (!currentProject) {
+        addTurn('err', 'No production picked', 'Pick a production above first.', false);
+        return;
+      }
+      addTurn('q', 'You asked', question, false);
+      input.value = '';
+      const submit = $('ask-submit');
+      submit.disabled = true;
+      try {
+        if (!session) await startSession(currentProject);
+        if (!session) return; // startSession already reported the error
+        const res = await api(`/projects/${encodeURIComponent(currentProject)}/ask`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: session.session_id,
+            user_id: session.user_id,
+            question,
+          }),
+        });
+        addTurn('a', 'The agent answered', res.answer, true);
+        await loadSelects(currentProject);
+      } catch (e) {
+        addTurn('err', 'The agent could not answer', e.message, false);
+      } finally {
+        submit.disabled = false;
+        input.focus();
+      }
+    });
+  </script>
+</body>
+</html>

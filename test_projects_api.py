@@ -27,6 +27,46 @@ def test_create_and_list_projects(client):
     assert listed[0]["id"] == "my-film"
 
 
+def test_list_projects_reports_clip_count(client, tmp_path):
+    import projects
+
+    client.post("/projects", json={"id": "hasclips", "name": "Has Clips"})
+    clips = projects.clips_dir("hasclips")
+    (clips / "A001_C0001.mp4").write_bytes(b"data")
+    (clips / "A001_C0002.mp4").write_bytes(b"data")
+    (clips / "notes.txt").write_bytes(b"ignored")
+
+    client.post("/projects", json={"id": "empty", "name": "Empty"})
+
+    # A manifest with no clips directory at all (e.g. a legacy/imported
+    # project) must report 0 rather than a glob error on a missing dir.
+    no_clips_dir = tmp_path / "nodir"
+    no_clips_dir.mkdir()
+    (no_clips_dir / "manifest.json").write_text(
+        json.dumps({"id": "nodir", "name": "No Dir"})
+    )
+
+    listed = {p["id"]: p for p in client.get("/projects").json()}
+    assert listed["hasclips"]["clip_count"] == 2
+    assert listed["empty"]["clip_count"] == 0
+    assert listed["nodir"]["clip_count"] == 0
+
+
+def test_config_reports_agents_default_project(client, monkeypatch):
+    """The app page's picker needs the same default the agent falls back to.
+
+    dailies_agent.agent.DEFAULT_PROJECT_ID reads PROJECT_ID at import time,
+    so tests monkeypatch the already-imported attribute rather than the env
+    var (same pattern as test_agent_session.py).
+    """
+    from dailies_agent import agent as agent_module
+
+    monkeypatch.setattr(agent_module, "DEFAULT_PROJECT_ID", "lailamajnu")
+    response = client.get("/config")
+    assert response.status_code == 200
+    assert response.json() == {"default_project_id": "lailamajnu"}
+
+
 def test_create_project_provisions_drive_subfolder(client, tmp_path, monkeypatch):
     import drive_sync
     import projects
@@ -386,6 +426,30 @@ def test_selects_csv_empty_project_is_header_only(client):
     assert rows == ["clip,take,score,confidence,reason,watch_url"]
 
 
+def test_selects_json_returns_stored_items_with_watch_urls(client, tmp_path):
+    import projects
+
+    client.post("/projects", json={"id": "demo", "name": "Demo"})
+    selects_path = projects.project_dir("demo") / "selects.json"
+    selects_path.write_text(
+        json.dumps([{"clip": "A001_C0123.mp4", "best_take": 2, "ranking_score": 0.9,
+                      "confidence": "high", "selection_reason": "clean take"}])
+    )
+
+    response = client.get("/projects/demo/selects.json")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] == 1
+    item = body["selects"][0]
+    assert item["clip"] == "A001_C0123.mp4"
+    assert "project=demo" in item["watch_url"]
+    assert "file=A001_C0123.mp4" in item["watch_url"]
+
+
+def test_selects_json_unknown_project_404s(client):
+    assert client.get("/projects/ghost/selects.json").status_code == 404
+
+
 def test_selects_csv_contains_stored_rows_and_survives_comma_and_quote(client, tmp_path):
     import projects
 
@@ -421,3 +485,123 @@ def test_selects_csv_contains_stored_rows_and_survives_comma_and_quote(client, t
     assert row[4] == 'she says "no, wait" then cries, softly'
     assert "A001_C0123.mp4" in row[5]
     assert "project=demo" in row[5]
+
+
+# --- POST /projects/{project_id}/session and /ask ------------------------
+#
+# The browser never talks to the ADK server directly - these two endpoints
+# proxy it. Session creation and the happy-path answer are faked by
+# monkeypatching the seam functions (same style as _adk_session above);
+# the unreachable-server case is exercised for real, against a closed local
+# port, so the test proves the actual urllib error path produces a clean
+# 502 instead of a hang or a raw traceback.
+
+
+def test_start_agent_session_scopes_state_to_the_project(client, monkeypatch):
+    import projects_api
+
+    client.post("/projects", json={"id": "demo", "name": "Demo"})
+    calls = []
+
+    def fake_post_json(path, payload, timeout=15):
+        calls.append((path, payload))
+        return {"id": "sess-1"}
+
+    monkeypatch.setattr(projects_api, "_adk_post_json", fake_post_json)
+
+    response = client.post("/projects/demo/session")
+    assert response.status_code == 200
+    body = response.json()
+    assert body == {
+        "session_id": "sess-1",
+        "user_id": "editor",
+        "app_name": projects_api.ADK_APP_NAME,
+        "project_id": "demo",
+    }
+    (path, payload), = calls
+    assert path == f"/apps/{projects_api.ADK_APP_NAME}/users/editor/sessions"
+    assert payload == {"state": {"project_id": "demo"}}
+
+
+def test_start_agent_session_unknown_project_404s(client):
+    assert client.post("/projects/ghost/session").status_code == 404
+
+
+def test_ask_agent_returns_the_final_prose_answer(client, monkeypatch):
+    import projects_api
+
+    client.post("/projects", json={"id": "demo", "name": "Demo"})
+
+    # A realistic run: a tool-call event carrying no text, then the model's
+    # wrap-up sentence. Only the second should surface as the answer.
+    sse_body = (
+        'data: {"content": {"role": "model", "parts": [{"functionCall": '
+        '{"name": "rank_clips", "args": {}}}]}}\n\n'
+        'data: {"content": {"role": "model", "parts": [{"text": '
+        '"Best take is A001_C0049.mp4, take 2."}]}}\n\n'
+    ).encode()
+
+    calls = []
+
+    def fake_post_raw(path, payload, timeout):
+        calls.append((path, payload, timeout))
+        return sse_body
+
+    monkeypatch.setattr(projects_api, "_adk_post_raw", fake_post_raw)
+
+    response = client.post(
+        "/projects/demo/ask",
+        json={"session_id": "sess-1", "question": "best take of the well scene"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "answer": "Best take is A001_C0049.mp4, take 2.",
+        "session_id": "sess-1",
+    }
+    (path, payload, _timeout), = calls
+    assert path == "/run_sse"
+    assert payload["session_id"] == "sess-1"
+    assert payload["new_message"]["parts"] == [{"text": "best take of the well scene"}]
+    assert payload["streaming"] is False
+
+
+def test_ask_agent_rejects_a_blank_question(client):
+    client.post("/projects", json={"id": "demo", "name": "Demo"})
+    response = client.post(
+        "/projects/demo/ask", json={"session_id": "sess-1", "question": "   "}
+    )
+    assert response.status_code == 400
+
+
+def test_ask_agent_unknown_project_404s(client):
+    response = client.post(
+        "/projects/ghost/ask", json={"session_id": "sess-1", "question": "hi"}
+    )
+    assert response.status_code == 404
+
+
+def test_unreachable_agent_server_produces_a_clean_error_not_a_hang(client, monkeypatch):
+    """No fake here - a real closed port, to prove the actual urllib.error/OSError
+    path degrades to a readable 502 naming the host, not a 500 or a hang."""
+    import projects_api
+
+    monkeypatch.setattr(projects_api, "ADK_BASE_URL", "http://127.0.0.1:1")
+    client.post("/projects", json={"id": "demo", "name": "Demo"})
+
+    session_response = client.post("/projects/demo/session")
+    assert session_response.status_code == 502
+    detail = session_response.json()["detail"]
+    assert "127.0.0.1:1" in detail
+    assert "adk api_server" in detail
+
+    ask_response = client.post(
+        "/projects/demo/ask", json={"session_id": "sess-1", "question": "hi"}
+    )
+    assert ask_response.status_code == 502
+    assert "127.0.0.1:1" in ask_response.json()["detail"]
+
+
+def test_app_page_is_served(client):
+    response = client.get("/app")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]

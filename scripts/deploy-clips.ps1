@@ -27,6 +27,9 @@ $clipCount = (Get-ChildItem (Join-Path $Stage "assets\clips\*.mp4")).Count
 Write-Host "    Staged $clipCount clips"
 
 Write-Host "==> Deploying $Service to Cloud Run..."
+# --timeout=300: Cloud Run's timeout covers the whole request, not just
+# time-to-first-byte. This service streams clips from GCS, so the 60s
+# default can cut off a ~20MB clip mid-playback on a slow connection.
 gcloud run deploy $Service `
   --project=$Project `
   --region=$Region `
@@ -36,7 +39,7 @@ gcloud run deploy $Service `
   --cpu=1 `
   --min-instances=0 `
   --max-instances=3 `
-  --timeout=60 `
+  --timeout=300 `
   --set-env-vars="GCS_INGEST_BUCKET=$Bucket" `
   --quiet
 

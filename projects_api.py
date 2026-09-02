@@ -129,7 +129,26 @@ def api_create_project(body: CreateProject) -> dict:
 
 @app.get("/projects")
 def api_list_projects() -> list[dict]:
-    return list_projects()
+    # ponytail: counts clips on every call (glob over each project's clips
+    # dir) - fine at this scale; cache if the project list ever gets large.
+    projects = list_projects()
+    for project in projects:
+        project["clip_count"] = sum(1 for _ in clips_dir(project["id"]).glob("*.mp4"))
+    return projects
+
+
+@app.get("/config")
+def api_config() -> dict:
+    """Server-side defaults the static app needs, so it doesn't hardcode one.
+
+    Imported lazily (like the /trace route's dailies_agent.investigation
+    import below) rather than at module load: dailies_agent/__init__.py
+    prepends its own directory to sys.path, and this app only needs one
+    constant out of it.
+    """
+    from dailies_agent.agent import DEFAULT_PROJECT_ID
+
+    return {"default_project_id": DEFAULT_PROJECT_ID}
 
 
 @app.get("/projects/{project_id}")
@@ -342,26 +361,48 @@ def api_stream_clip(project_id: str, filename: str):
 SELECTS_CSV_COLUMNS = ["clip", "take", "score", "confidence", "reason", "watch_url"]
 
 
-@app.get("/projects/{project_id}/selects.csv")
-def api_export_selects(project_id: str):
-    """Download the editorial select list dailies_agent has built up, as CSV.
+def _load_selects_list(project_id: str) -> list[dict]:
+    """Read this project's select list, tolerating a missing or corrupt file.
 
     Reads the same selects.json that add_to_select_list writes
     (dailies_agent/editorial_tools.py) so this is the one copy of the
     truth, not a second store to keep in sync. A malformed file degrades to
     an empty list rather than a 500 - a broken export helps no one.
     """
+    path = project_dir(project_id) / "selects.json"
+    if not path.is_file():
+        return []
+    try:
+        loaded = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return []
+    return loaded if isinstance(loaded, list) else []
+
+
+@app.get("/projects/{project_id}/selects.json")
+def api_get_selects(project_id: str) -> dict:
+    """The select list as JSON, for the app UI's camera report.
+
+    selects.csv stays the one export format; this exists so the browser
+    never has to parse CSV client-side for the on-page report.
+    """
     if not project_dir(project_id).exists():
         raise HTTPException(status_code=404, detail="project not found")
-    path = project_dir(project_id) / "selects.json"
-    items: list[dict] = []
-    if path.is_file():
-        try:
-            loaded = json.loads(path.read_text())
-            if isinstance(loaded, list):
-                items = loaded
-        except json.JSONDecodeError:
-            items = []
+    items = _load_selects_list(project_id)
+    for item in items:
+        clip = item.get("clip")
+        item["watch_url"] = (
+            clip_watch_url(clip, project_id, CLIP_BASE_URL) if clip else None
+        )
+    return {"project_id": project_id, "selects": items, "count": len(items)}
+
+
+@app.get("/projects/{project_id}/selects.csv")
+def api_export_selects(project_id: str):
+    """Download the editorial select list dailies_agent has built up, as CSV."""
+    if not project_dir(project_id).exists():
+        raise HTTPException(status_code=404, detail="project not found")
+    items = _load_selects_list(project_id)
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(SELECTS_CSV_COLUMNS)
@@ -461,6 +502,139 @@ def _adk_session(session_id: str, user_id: str, app_name: str) -> dict:
             status_code=502,
             detail=f"cannot reach the agent at {ADK_BASE_URL}",
         ) from exc
+
+
+def _adk_post_raw(path: str, payload: dict, timeout: int) -> bytes:
+    """POST JSON to the ADK agent server; raise a readable 502 if it can't be reached.
+
+    Same urllib approach _adk_session already uses for GET, so this stays
+    the one way this app talks to the agent process - no new HTTP
+    dependency, and the error copy names the host so the editor can act on
+    it instead of staring at a stack trace.
+    """
+    import urllib.error
+    import urllib.request
+
+    url = f"{ADK_BASE_URL.rstrip('/')}{path}"
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        url, data=data, method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            return response.read()
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace") or exc.reason
+        raise HTTPException(
+            status_code=502, detail=f"agent server rejected the request: {detail}"
+        ) from exc
+    except OSError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Can't reach the agent at {ADK_BASE_URL}. "
+                "Start it with `adk api_server`."
+            ),
+        ) from exc
+
+
+def _adk_post_json(path: str, payload: dict, timeout: int = 15) -> dict:
+    return json.loads(_adk_post_raw(path, payload, timeout) or b"{}")
+
+
+def _last_agent_text(raw: bytes) -> str | None:
+    """The final prose answer out of a run_sse response body.
+
+    Each `data:` line is one ADK Event. Tool-call and tool-response events
+    carry no text part - only the model's actual reply does - and a turn
+    can end with several events (a tool call, then the wrap-up sentence),
+    so the last one with text wins.
+    """
+    answer: str | None = None
+    for line in raw.decode("utf-8", "replace").splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        try:
+            event = json.loads(line[len("data:"):].strip())
+        except json.JSONDecodeError:
+            continue
+        parts = ((event.get("content") or {}).get("parts")) or []
+        text = "".join(part.get("text") or "" for part in parts).strip()
+        if text:
+            answer = text
+    return answer
+
+
+class AskRequest(BaseModel):
+    session_id: str
+    question: str
+    user_id: str = "editor"
+
+
+@app.post("/projects/{project_id}/session")
+def api_start_agent_session(project_id: str, user_id: str = "editor") -> dict:
+    """Open an ADK session pinned to this production.
+
+    Passing project_id as initial session state means rank_clips and the
+    other editorial tools (which read tool_context.state['project_id']) are
+    scoped correctly from the very first turn, without spending a turn on a
+    throwaway 'use project X' message.
+    """
+    if not project_dir(project_id).exists():
+        raise HTTPException(status_code=404, detail="project not found")
+    import urllib.parse
+
+    path = (
+        f"/apps/{urllib.parse.quote(ADK_APP_NAME)}"
+        f"/users/{urllib.parse.quote(user_id)}/sessions"
+    )
+    session = _adk_post_json(path, {"state": {"project_id": project_id}})
+    session_id = session.get("id")
+    if not session_id:
+        raise HTTPException(
+            status_code=502, detail="agent server did not return a session id"
+        )
+    return {
+        "session_id": session_id,
+        "user_id": user_id,
+        "app_name": ADK_APP_NAME,
+        "project_id": project_id,
+    }
+
+
+@app.post("/projects/{project_id}/ask")
+def api_ask_agent(project_id: str, body: AskRequest) -> dict:
+    """Send one question to the agent and hand back its prose answer.
+
+    Consumes the run_sse stream server-side rather than piping SSE through
+    to the browser: the page only ever needs the final text, and this way a
+    dead agent server ends in one clean 502 instead of leaving the browser
+    to notice an open connection timed out.
+    """
+    if not project_dir(project_id).exists():
+        raise HTTPException(status_code=404, detail="project not found")
+    question = body.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="ask a question first")
+    raw = _adk_post_raw(
+        "/run_sse",
+        {
+            "app_name": ADK_APP_NAME,
+            "user_id": body.user_id,
+            "session_id": body.session_id,
+            "new_message": {"role": "user", "parts": [{"text": question}]},
+            "streaming": False,
+        },
+        timeout=120,
+    )
+    answer = _last_agent_text(raw)
+    if answer is None:
+        raise HTTPException(
+            status_code=502, detail="the agent returned no answer for that question"
+        )
+    return {"answer": answer, "session_id": body.session_id}
 
 
 def _trace_picker_html(user_id: str, app_name: str) -> str:
@@ -652,6 +826,14 @@ def onboard_page():
     page = STATIC / "onboard.html"
     if not page.exists():
         raise HTTPException(status_code=404, detail="onboard.html missing")
+    return FileResponse(page)
+
+
+@app.get("/app")
+def app_page():
+    page = STATIC / "app.html"
+    if not page.exists():
+        raise HTTPException(status_code=404, detail="app.html missing")
     return FileResponse(page)
 
 
