@@ -1,0 +1,6 @@
+# Keep the staged assets/dailies_agent trees in the upload; only skip
+# Python junk and local dev artifacts if any slip into the staged copy.
+__pycache__/
+*.pyc
+.DS_Store
+.adk/

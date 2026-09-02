@@ -52,6 +52,75 @@ def test_list_projects_reports_clip_count(client, tmp_path):
     assert listed["nodir"]["clip_count"] == 0
 
 
+def test_list_projects_local_clips_skip_gcs(client, monkeypatch):
+    """Local mp4s win outright - no bucket call is made when they exist."""
+    import projects
+    import projects_api
+
+    client.post("/projects", json={"id": "hasclips", "name": "Has Clips"})
+    clips = projects.clips_dir("hasclips")
+    (clips / "A001_C0001.mp4").write_bytes(b"data")
+
+    monkeypatch.setenv("GCS_INGEST_BUCKET", "test-bucket")
+
+    def fail_if_called(project_id, bucket):
+        raise AssertionError("GCS should not be consulted when local clips exist")
+
+    monkeypatch.setattr(projects_api, "_gcs_clip_count", fail_if_called)
+
+    listed = {p["id"]: p for p in client.get("/projects").json()}
+    assert listed["hasclips"]["clip_count"] == 1
+
+
+def test_list_projects_counts_from_gcs_when_no_local_clips(client, monkeypatch):
+    """No mp4s on disk + a bucket set -> the count comes from GCS instead."""
+    import projects_api
+
+    client.post("/projects", json={"id": "lailamajnu", "name": "Laila Majnu"})
+    monkeypatch.setenv("GCS_INGEST_BUCKET", "dailies-ingest-devpost-506321")
+    monkeypatch.setattr(projects_api, "_gcs_clip_count_cache", {})
+
+    class FakeBlob:
+        def __init__(self, name):
+            self.name = name
+
+    class FakeStorageClient:
+        """Stand-in for google.cloud.storage.Client - no real network calls."""
+
+        def list_blobs(self, bucket, prefix):
+            assert bucket == "dailies-ingest-devpost-506321"
+            assert prefix == "lailamajnu/"
+            return [
+                FakeBlob("lailamajnu/A001_C0001.mp4"),
+                FakeBlob("lailamajnu/A001_C0002.mp4"),
+                FakeBlob("lailamajnu/notes.txt"),  # not an mp4 - excluded
+            ]
+
+    monkeypatch.setattr(projects_api, "_gcs_client", lambda: FakeStorageClient())
+
+    listed = {p["id"]: p for p in client.get("/projects").json()}
+    assert listed["lailamajnu"]["clip_count"] == 2
+
+
+def test_list_projects_gcs_failure_falls_back_to_local_count(client, monkeypatch):
+    """A GCS error (no creds, network, etc.) must not 500 the whole page."""
+    import projects_api
+
+    client.post("/projects", json={"id": "lailamajnu", "name": "Laila Majnu"})
+    monkeypatch.setenv("GCS_INGEST_BUCKET", "dailies-ingest-devpost-506321")
+    monkeypatch.setattr(projects_api, "_gcs_clip_count_cache", {})
+
+    def raising_client():
+        raise RuntimeError("no credentials configured")
+
+    monkeypatch.setattr(projects_api, "_gcs_client", raising_client)
+
+    response = client.get("/projects")
+    assert response.status_code == 200
+    listed = {p["id"]: p for p in response.json()}
+    assert listed["lailamajnu"]["clip_count"] == 0
+
+
 def test_config_reports_agents_default_project(client, monkeypatch):
     """The app page's picker needs the same default the agent falls back to.
 

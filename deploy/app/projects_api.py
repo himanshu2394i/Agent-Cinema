@@ -127,66 +127,13 @@ def api_create_project(body: CreateProject) -> dict:
     return {"id": body.id.lower(), "name": body.name, "drive_folder_id": drive_folder_id}
 
 
-def _gcs_client():
-    """Lazy import so the module still imports with no GCS installed/configured.
-
-    Same seam watch_server.py's _gcs_blob uses, so tests fake this one
-    function instead of google.cloud.storage itself.
-    """
-    from google.cloud import storage
-
-    return storage.Client()
-
-
-def _gcs_clip_count(project_id: str, bucket: str) -> int:
-    """Count this project's .mp4 objects in the bucket - same blob layout
-    (`{project_id}/{filename}`) watch_server.py streams from."""
-    client = _gcs_client()
-    return sum(
-        1
-        for blob in client.list_blobs(bucket, prefix=f"{project_id}/")
-        if blob.name.endswith(".mp4")
-    )
-
-
-# ponytail: process-lifetime cache, one dict entry per project id. Goes
-# stale for clips added to the bucket after this process started; Cloud Run
-# scales to zero often enough that a fresh process re-lists soon, so no
-# explicit invalidation.
-_gcs_clip_count_cache: dict[str, int] = {}
-
-
-def _clip_count(project_id: str) -> int:
-    """Local mp4s win when present. Otherwise, if GCS_INGEST_BUCKET is set,
-    count objects under this project's prefix there instead - the deployed
-    dailies-app image ships zero mp4s on purpose (clips are served by
-    dailies-clips from GCS), so an empty local dir there means "ask the
-    bucket", not "zero clips". Any GCS failure (no bucket, no creds, network)
-    degrades to the local count rather than raising - this drives the whole
-    /projects page and must not 500 over a bucket listing.
-    """
-    local = sum(1 for _ in clips_dir(project_id).glob("*.mp4"))
-    if local:
-        return local
-    bucket = os.environ.get("GCS_INGEST_BUCKET")
-    if not bucket:
-        return 0
-    if project_id in _gcs_clip_count_cache:
-        return _gcs_clip_count_cache[project_id]
-    try:
-        count = _gcs_clip_count(project_id, bucket)
-    except Exception:
-        log.exception("GCS clip count failed for project %s", project_id)
-        return 0
-    _gcs_clip_count_cache[project_id] = count
-    return count
-
-
 @app.get("/projects")
 def api_list_projects() -> list[dict]:
+    # ponytail: counts clips on every call (glob over each project's clips
+    # dir) - fine at this scale; cache if the project list ever gets large.
     projects = list_projects()
     for project in projects:
-        project["clip_count"] = _clip_count(project["id"])
+        project["clip_count"] = sum(1 for _ in clips_dir(project["id"]).glob("*.mp4"))
     return projects
 
 
@@ -210,12 +157,13 @@ def api_project_status(project_id: str) -> ProjectStatus:
     if not root.exists():
         raise HTTPException(status_code=404, detail="project not found")
     manifest = load_manifest(project_id)
+    clips = list(clips_dir(project_id).glob("*.mp4"))
     return ProjectStatus(
         id=project_id,
         name=manifest["name"],
         has_vocabulary=vocabulary_path(project_id).exists(),
         has_screenplay=screenplay_path(project_id).is_file(),
-        clip_count=_clip_count(project_id),
+        clip_count=len(clips),
         drive_folder_id=manifest.get("drive_folder_id"),
     )
 
