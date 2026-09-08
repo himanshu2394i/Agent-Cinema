@@ -102,22 +102,25 @@ That gap is the honest shape of a vocabulary and a corpus that do not share a
 production, and it is worth saying out loud in a demo rather than letting a
 viewer find it.
 
-Then log one clip end to end, and open the agent:
+Then log one clip end to end, and start the agent's API server:
 
     .venv/Scripts/python.exe db.py init
     .venv/Scripts/python.exe smoke.py assets/notld_1968_screenplay.pdf assets/clips/A001_C0001.mp4
-    .venv/Scripts/adk.exe web
+    .venv/Scripts/adk.exe api_server
 
-`smoke.py` must run before `adk web`: it writes `assets/vocabulary.json`, and
-the agent builds its system prompt from that file. The prompt is built per
+`smoke.py` must run before the agent server: it writes `assets/vocabulary.json`,
+and the agent builds its system prompt from that file. The prompt is built per
 turn rather than at import, so a missing vocabulary is not a crash - the agent
 answers by telling you which projects it does have a screenplay for, and
 refuses to query until you pick one.
 
-`adk web` reads `dailies_agent/` from the current directory, so run it from
-the project root. Its first run on a machine asks (once) whether to enable
-anonymous telemetry. Once it's up, open http://127.0.0.1:8000 and ask it a
-question about the footage you just logged.
+`adk api_server` reads `dailies_agent/` from the current directory, so run it
+from the project root. Its first run on a machine asks (once) whether to
+enable anonymous telemetry. It serves the same REST API `adk web` does
+(sessions, `/run_sse`) but with no browser UI of its own - the UI is
+`projects_api`'s `/app`, below, which is what you actually chat through.
+`adk web`'s own developer chat still works if you want to poke the raw API,
+but it is not the product surface any more.
 
 `smoke.py` logs one clip. To log the whole directory you cut earlier:
 
@@ -134,16 +137,28 @@ project with `--project my-film` (default `notld_1968`).
 Create a production, upload a screenplay and clips, then chat scoped to that
 project:
 
+    .venv/Scripts/adk.exe api_server
     .venv/Scripts/python.exe -m uvicorn projects_api:app --reload --port 8080
 
 Open http://127.0.0.1:8080/onboard. After clips are on disk (upload or Drive
-sync), ingest from the CLI the wizard shows, then run `adk web`.
+sync), ingest from the wizard's button (or the CLI it shows as a fallback),
+then open the dailies desk - `/app` - which the wizard links to already
+scoped to that project.
+
+`/app` is a purpose-built interface, not ADK's developer chat: a viewer next
+to a camera-report select list, clip links that play inline, and an export
+for the takes you circle. It proxies the agent over HTTP (`ADK_BASE_URL`,
+default `http://127.0.0.1:8000` - what `adk api_server` listens on), so the
+browser only ever talks to `projects_api` on :8080.
 
 ### Switching production mid-session
 
-One `adk web` process serves every production. `PROJECT_ID` in `.env` is only
+One agent process serves every production. `PROJECT_ID` in `.env` is only
 the project a *new* session starts on; the session's own state wins over it.
-To point a session at another movie, ask in plain English:
+`/app?project=<id>` seeds that state when the session opens, which is how the
+wizard's link scopes a session with no typing. Asking in plain English still
+works too, from `/app` or from `adk web`'s own chat if you're poking the API
+directly:
 
     use project lailamajnu
 

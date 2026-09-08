@@ -75,7 +75,7 @@
     <pre id="ingest-cmd"></pre>
     <p id="agent-hint" class="ok"></p>
     <p id="watch-hint" class="ok"></p>
-    <p><a id="agent-link" href="/" target="_blank">Open ADK agent</a></p>
+    <p><a id="agent-link" href="/app" target="_blank">Open the dailies desk</a></p>
     <p><a id="selects-link" href="#" target="_blank">Export select report</a></p>
     <p class="sub" id="selects-hint"></p>
   </section>
@@ -160,9 +160,9 @@
       $('step-chat').hidden = false;
       $('ingest-cmd').textContent =
         `.venv/Scripts/python.exe ingest_all.py assets/projects/${projectId}/clips --project ${projectId}`;
-      $('agent-link').href = '/';
+      $('agent-link').href = `/app?project=${projectId}`;
       $('agent-hint').textContent =
-        `In the agent, type: use project ${projectId} — one adk web process serves every production, so this scopes the session without a restart.`;
+        `Opens on ${projectId} already — no need to type "use project" first.`;
       $('watch-hint').textContent =
         `Keep uvicorn on :8080 — Drive sync runs every 2 minutes. Watch links: /watch?project=${projectId}&file=A001_C0007.mp4`;
       $('selects-link').href = `/projects/${projectId}/selects.csv`;
