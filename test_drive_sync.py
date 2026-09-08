@@ -31,7 +31,6 @@ def test_set_drive_folder_writes_manifest(tmp_path, monkeypatch):
     import projects
 
     monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
-    monkeypatch.setattr(projects, "LEGACY_VOCABULARY_PATH", tmp_path / "missing.json")
     projects.create_project("my-film", "My Film")
     projects.set_drive_folder(
         "my-film", "https://drive.google.com/drive/folders/1AbCDefGhIjk_lmnoPQRS"

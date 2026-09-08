@@ -457,6 +457,13 @@
     const $ = (id) => document.getElementById(id);
 
     let currentProject = '';
+    // Where clips actually live. Empty means "same origin as this page" -
+    // true for local single-server dev, where projects_api serves both.
+    // Deployed, the app and the clip player are two separate Cloud Run
+    // services: a bare relative /projects/.../media/... URL resolves
+    // against the APP's origin, which has no media route reachable that
+    // way, and 404s. /config hands back the real one.
+    let clipBaseUrl = '';
     let session = null; // { session_id, user_id, app_name, project_id }
 
     async function api(path, opts = {}) {
@@ -478,7 +485,8 @@
     function playClip(project, file) {
       const video = $('viewer');
       const empty = $('viewer-empty');
-      video.src = `/projects/${encodeURIComponent(project)}/media/${encodeURIComponent(file)}`;
+      const base = clipBaseUrl ? clipBaseUrl.replace(/\/$/, '') : '';
+      video.src = `${base}/projects/${encodeURIComponent(project)}/media/${encodeURIComponent(file)}`;
       video.hidden = false;
       empty.hidden = true;
       $('viewer-filename').textContent = file;
@@ -744,9 +752,12 @@
         }
         let serverDefault = '';
         try {
-          serverDefault = (await api('/config')).default_project_id || '';
+          const config = await api('/config');
+          serverDefault = config.default_project_id || '';
+          clipBaseUrl = config.clip_base_url || '';
         } catch (e) {
-          // /config unreachable - fall through to the first listed project.
+          // /config unreachable - fall through to the first listed project;
+          // clipBaseUrl stays '', so clip URLs resolve against this origin.
         }
         const mostClips = listed.reduce(
           (best, p) => (p.clip_count > (best?.clip_count ?? -1) ? p : best), null
