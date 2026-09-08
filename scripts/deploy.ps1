@@ -90,9 +90,16 @@ if (-not $clipBase) { throw "dailies-clips URL missing after deploy-clips.ps1" }
 
 Write-Host "==> Wiring env vars + secret..."
 $chHost = ((Get-Content ".env" | Where-Object { $_ -match '^CLICKHOUSE_HOST=' }) -replace '^CLICKHOUSE_HOST=','').Trim()
+# --min-instances=1: without it Cloud Run scales this service to zero between
+# demos, and the next request has to boot the ADK server plus the MCP
+# ClickHouse toolset before it can even accept a session - observed 31s cold,
+# which the app's own proxy timeout (see projects_api.py) was shorter than.
+# Costs a small continuous fee for the idle instance instead of nothing;
+# worth it so a judge's first question doesn't look like it hung.
 gcloud run services update $Service --region=$Region --project=$Project `
   --set-env-vars="CLICKHOUSE_HOST=$chHost,CLICKHOUSE_PORT=8443,CLICKHOUSE_USER=default,CLICKHOUSE_SECURE=true,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=$Project,GOOGLE_CLOUD_LOCATION=$Region,AGENT_MODEL=gemini-2.5-flash,CLIP_BASE_URL=$clipBase" `
-  --set-secrets="CLICKHOUSE_PASSWORD=clickhouse-password:latest"
+  --set-secrets="CLICKHOUSE_PASSWORD=clickhouse-password:latest" `
+  --min-instances=1
 
 Write-Host "==> Granting Vertex AI to Cloud Run service account..."
 gcloud projects add-iam-policy-binding $Project `
