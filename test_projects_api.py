@@ -674,3 +674,29 @@ def test_app_page_is_served(client):
     response = client.get("/app")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
+
+
+def test_start_agent_session_tolerates_a_cold_agent(client, monkeypatch):
+    """Cloud Run scales the agent to zero; its first request has to boot the
+    ADK server and the MCP ClickHouse toolset before it can even accept a
+    session-create call. Verified live: a cold agent took 31s just to answer
+    a plain GET, so a proxy timeout shorter than that reports "can't reach
+    the agent" for an agent that is, in fact, on its way up.
+    """
+    import projects_api
+
+    client.post("/projects", json={"id": "demo", "name": "Demo"})
+    seen_timeout = []
+
+    def fake_post_json(path, payload, timeout=15):
+        seen_timeout.append(timeout)
+        return {"id": "sess-1"}
+
+    monkeypatch.setattr(projects_api, "_adk_post_json", fake_post_json)
+    response = client.post("/projects/demo/session")
+    assert response.status_code == 200
+    (timeout,) = seen_timeout
+    assert timeout >= 60, (
+        f"session creation used timeout={timeout}s, too short to survive a "
+        "cold Cloud Run start (observed 31s for a plain GET)"
+    )

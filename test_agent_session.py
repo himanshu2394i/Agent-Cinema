@@ -1,6 +1,6 @@
 """Per-session project scoping for the query agent.
 
-One `adk web` process serves several productions, so the project a session
+One agent process serves several productions, so the project a session
 talks about has to come from session state rather than from PROJECT_ID at
 import time.
 """
