@@ -20,9 +20,10 @@ from html import escape
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+from urllib.parse import urlencode, urlsplit
 from google import genai
 from pydantic import BaseModel, Field
 
@@ -399,13 +400,18 @@ def api_ingest_status(project_id: str) -> dict:
 
 
 @app.get("/projects/{project_id}/media/{filename}")
-def api_stream_clip(project_id: str, filename: str):
+def api_stream_clip(project_id: str, filename: str, request: Request):
     """Stream an mp4 for the HTML5 viewer (and direct download)."""
     try:
         path = resolve_clip(project_id, filename)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if path is None:
+        elsewhere = _clip_service_redirect(
+            request, f"/projects/{project_id}/media/{filename}"
+        )
+        if elsewhere is not None:
+            return elsewhere
         raise HTTPException(status_code=404, detail="clip not found")
     return FileResponse(path, media_type="video/mp4", filename=path.name)
 
@@ -479,8 +485,24 @@ def api_export_selects(project_id: str):
     )
 
 
+def _clip_service_redirect(request: Request, path_and_query: str):
+    """Hand a clip request to the service that actually holds the footage.
+
+    This app ships no clips in the deployed split - the clip player service
+    does, with its own GCS fallback - so its inherited /watch and /media
+    routes would otherwise dead-end on every real clip. Returns None when
+    CLIP_BASE_URL is this same server (the local single-process default),
+    because redirecting there would bounce the caller straight back here.
+    """
+    base = CLIP_BASE_URL.rstrip("/")
+    if not base or urlsplit(base).netloc == request.url.netloc:
+        return None
+    return RedirectResponse(f"{base}{path_and_query}", status_code=307)
+
+
 @app.get("/watch", response_class=HTMLResponse)
 def watch_clip(
+    request: Request,
     file: str = Query(..., description="source_file basename, e.g. A001_C0007.mp4"),
     project: str = Query("notld_1968", description="project_id"),
 ):
@@ -490,6 +512,11 @@ def watch_clip(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if path is None:
+        elsewhere = _clip_service_redirect(
+            request, "/watch?" + urlencode({"project": project, "file": file})
+        )
+        if elsewhere is not None:
+            return elsewhere
         raise HTTPException(status_code=404, detail="clip not found")
     safe_file = escape(path.name)
     safe_project = escape(project)

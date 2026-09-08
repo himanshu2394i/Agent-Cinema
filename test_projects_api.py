@@ -719,3 +719,58 @@ def test_start_agent_session_tolerates_a_cold_agent(client, monkeypatch):
         f"session creation used timeout={timeout}s, too short to survive a "
         "cold Cloud Run start (observed 31s for a plain GET)"
     )
+
+
+def test_watch_and_media_hand_off_to_the_clip_service(client, monkeypatch):
+    """The app service ships no clips of its own in the deployed split, so
+    its inherited /watch and /media routes 404 for every real clip. The
+    clip service is the one that can actually serve them (local disk, then
+    GCS), so send the caller there instead of dead-ending - stale links,
+    bookmarks, and the wizard's own hint all point at this host.
+    """
+    import projects_api
+
+    client.post("/projects", json={"id": "demo", "name": "Demo"})
+    monkeypatch.setattr(projects_api, "CLIP_BASE_URL", "https://clips.example")
+
+    media = client.get("/projects/demo/media/A001_C0007.mp4", follow_redirects=False)
+    assert media.status_code == 307
+    assert media.headers["location"] == (
+        "https://clips.example/projects/demo/media/A001_C0007.mp4"
+    )
+
+    watch = client.get(
+        "/watch?project=demo&file=A001_C0007.mp4", follow_redirects=False
+    )
+    assert watch.status_code == 307
+    assert watch.headers["location"] == (
+        "https://clips.example/watch?project=demo&file=A001_C0007.mp4"
+    )
+
+
+def test_local_clip_still_served_without_a_redirect(client, monkeypatch, tmp_path):
+    """A clip on this machine's disk is still served straight from here -
+    local single-server dev must not start bouncing to a remote host."""
+    import projects
+    import projects_api
+
+    client.post("/projects", json={"id": "demo", "name": "Demo"})
+    (projects.clips_dir("demo") / "A001_C0007.mp4").write_bytes(b"fake-mp4")
+    monkeypatch.setattr(projects_api, "CLIP_BASE_URL", "https://clips.example")
+
+    response = client.get("/projects/demo/media/A001_C0007.mp4", follow_redirects=False)
+    assert response.status_code == 200
+    assert response.content == b"fake-mp4"
+
+
+def test_missing_clip_404s_instead_of_redirecting_to_itself(client, monkeypatch):
+    """With CLIP_BASE_URL pointing at this same server (the local default),
+    redirecting would bounce the caller straight back here forever. A 404 is
+    the honest answer."""
+    import projects_api
+
+    client.post("/projects", json={"id": "demo", "name": "Demo"})
+    monkeypatch.setattr(projects_api, "CLIP_BASE_URL", "http://testserver")
+
+    response = client.get("/projects/demo/media/A001_C0007.mp4", follow_redirects=False)
+    assert response.status_code == 404

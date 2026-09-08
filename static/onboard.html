@@ -164,7 +164,7 @@
       $('agent-hint').textContent =
         `Opens on ${projectId} already — no need to type "use project" first.`;
       $('watch-hint').textContent =
-        `Keep uvicorn on :8080 — Drive sync runs every 2 minutes. Watch links: /watch?project=${projectId}&file=A001_C0007.mp4`;
+        `Drive sync runs every 2 minutes, so clips dropped in the folder appear on their own. Any clip is watchable at /watch?project=${projectId}&file=<clip>.mp4`;
       $('selects-link').href = `/projects/${projectId}/selects.csv`;
       $('selects-hint').textContent =
         'The selects circled so far — take, score, and the reason each was picked.';
