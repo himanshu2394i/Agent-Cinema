@@ -17,6 +17,12 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DRIVE_SYNC_INTERVAL_SECONDS", "0")
     monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
     monkeypatch.setattr(projects_api, "PROJECTS_ROOT", tmp_path)
+    # list_projects() advertises notld_1968 whenever the real machine's
+    # legacy assets/vocabulary.json exists, independent of PROJECTS_ROOT.
+    # Point it at nothing so every test here sees exactly the projects it
+    # creates - notld_1968's own listing behaviour is covered in
+    # test_projects.py, not duplicated per-test here.
+    monkeypatch.setattr(projects, "LEGACY_VOCABULARY_PATH", tmp_path / "no-legacy-vocab.json")
     return TestClient(projects_api.app)
 
 

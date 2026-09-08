@@ -50,6 +50,7 @@ def test_create_project_rejects_duplicate(tmp_path, monkeypatch):
 def test_list_projects_returns_created_projects(tmp_path, monkeypatch):
     import projects
     monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
+    monkeypatch.setattr(projects, "LEGACY_VOCABULARY_PATH", tmp_path / "missing.json")
 
     projects.create_project("one", "One")
     projects.create_project("two", "Two")
@@ -102,3 +103,41 @@ def test_clip_watch_url_points_at_viewer():
     url = projects.clip_watch_url("A001_C0007.mp4", project_id="my-film",
                                   base_url="http://127.0.0.1:8080")
     assert url == "http://127.0.0.1:8080/watch?project=my-film&file=A001_C0007.mp4"
+
+
+def test_list_projects_includes_notld_as_a_legacy_entry(tmp_path, monkeypatch):
+    """notld_1968 predates the manifest system - its screenplay and clips
+    live at the legacy top-level assets/ paths, not assets/projects/<id>/,
+    so it has no manifest.json and list_projects() never saw it. That made
+    it invisible in the /app picker even though it is a fully-logged, live
+    production (180 ClickHouse rows, playable clips) - unlike hackathon,
+    project1, and verify_merge_demo, which really do have zero rows.
+    resolve_clip() and both vocab.py modules already special-case
+    notld_1968 with a legacy-path fallback; list_projects() should too.
+    """
+    import projects
+    monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
+    legacy_vocab = tmp_path / "legacy_vocabulary.json"
+    legacy_vocab.write_text("{}")
+    monkeypatch.setattr(projects, "LEGACY_VOCABULARY_PATH", legacy_vocab)
+
+    projects.create_project("lailamajnu", "LailaMajnuMovie")
+
+    listed = projects.list_projects()
+    assert {p["id"] for p in listed} == {"notld_1968", "lailamajnu"}
+    notld = next(p for p in listed if p["id"] == "notld_1968")
+    assert notld["name"]
+
+
+def test_list_projects_skips_notld_when_no_legacy_vocabulary(tmp_path, monkeypatch):
+    """A machine with no legacy assets/vocabulary.json (e.g. a fresh clone
+    that never ran the NOTLD path) should not advertise a production it
+    cannot actually serve."""
+    import projects
+    monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
+    monkeypatch.setattr(projects, "LEGACY_VOCABULARY_PATH", tmp_path / "missing.json")
+
+    projects.create_project("lailamajnu", "LailaMajnuMovie")
+
+    listed = projects.list_projects()
+    assert {p["id"] for p in listed} == {"lailamajnu"}

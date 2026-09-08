@@ -12,6 +12,7 @@ from pathlib import Path
 
 PROJECTS_ROOT = Path("assets/projects")
 LEGACY_CLIPS_DIR = Path("assets/clips")
+LEGACY_VOCABULARY_PATH = Path("assets/vocabulary.json")
 DEFAULT_CLIP_BASE_URL = "http://127.0.0.1:8080"
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 SLUG_INPUT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
@@ -139,10 +140,29 @@ def create_project(project_id: str, name: str) -> Path:
 
 
 def list_projects() -> list[dict]:
-    """Return manifests for every project on disk, oldest first."""
-    if not PROJECTS_ROOT.exists():
-        return []
+    """Return manifests for every project on disk, oldest first.
+
+    notld_1968 predates this manifest system - its screenplay and clips
+    live at the legacy top-level assets/ paths, not assets/projects/<id>/,
+    so it never gets a manifest.json and the loop below would never see it.
+    It is a real, fully-logged production (not an empty test artifact like
+    the others that can show zero clips), so it gets the same kind of
+    legacy special-case resolve_clip() and both vocab.py modules already
+    use, keyed on whether the legacy vocabulary cache actually exists -
+    a machine that never ran that path should not advertise it.
+    """
     out: list[dict] = []
+    if LEGACY_VOCABULARY_PATH.exists():
+        out.append(
+            {
+                "id": "notld_1968",
+                "name": "Night of the Living Dead (1968)",
+                "created_at": None,
+                "drive_folder_id": None,
+            }
+        )
+    if not PROJECTS_ROOT.exists():
+        return out
     for path in sorted(PROJECTS_ROOT.iterdir()):
         if not path.is_dir():
             continue
