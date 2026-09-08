@@ -642,7 +642,11 @@ def api_start_agent_session(project_id: str, user_id: str = "editor") -> dict:
         f"/apps/{urllib.parse.quote(ADK_APP_NAME)}"
         f"/users/{urllib.parse.quote(user_id)}/sessions"
     )
-    session = _adk_post_json(path, {"state": {"project_id": project_id}})
+    # Cloud Run scales the agent to zero. Its first request has to boot the
+    # ADK server and the MCP ClickHouse toolset before it can accept this
+    # call at all - observed 31s for the agent to answer a plain GET cold.
+    # The default 15s timeout reported a live, booting agent as unreachable.
+    session = _adk_post_json(path, {"state": {"project_id": project_id}}, timeout=90)
     session_id = session.get("id")
     if not session_id:
         raise HTTPException(
