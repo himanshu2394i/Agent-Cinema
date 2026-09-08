@@ -128,12 +128,31 @@ def test_config_reports_agents_default_project(client, monkeypatch):
     so tests monkeypatch the already-imported attribute rather than the env
     var (same pattern as test_agent_session.py).
     """
+    import projects_api
     from dailies_agent import agent as agent_module
 
     monkeypatch.setattr(agent_module, "DEFAULT_PROJECT_ID", "lailamajnu")
     response = client.get("/config")
     assert response.status_code == 200
-    assert response.json() == {"default_project_id": "lailamajnu"}
+    assert response.json() == {
+        "default_project_id": "lailamajnu",
+        "clip_base_url": projects_api.CLIP_BASE_URL,
+    }
+
+
+def test_config_reports_the_clip_service_origin(client, monkeypatch):
+    """The viewer builds every clip's playback URL from this value - without
+    it, static/app.html falls back to a bare relative path that resolves
+    against the app's OWN origin. That is exactly how this broke live: the
+    app and clip services are two separate Cloud Run deployments, so a
+    relative /projects/<id>/media/<file> URL 404s (the app has no media
+    route reachable that way; only the dedicated clip service does, on its
+    own host). The video element must be given an absolute URL.
+    """
+    import projects_api
+
+    monkeypatch.setattr(projects_api, "CLIP_BASE_URL", "https://dailies-clips.example")
+    assert client.get("/config").json()["clip_base_url"] == "https://dailies-clips.example"
 
 
 def test_create_project_provisions_drive_subfolder(client, tmp_path, monkeypatch):

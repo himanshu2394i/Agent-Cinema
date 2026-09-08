@@ -201,7 +201,7 @@ def api_config() -> dict:
     """
     from dailies_agent.agent import DEFAULT_PROJECT_ID
 
-    return {"default_project_id": DEFAULT_PROJECT_ID}
+    return {"default_project_id": DEFAULT_PROJECT_ID, "clip_base_url": CLIP_BASE_URL}
 
 
 @app.get("/projects/{project_id}")
