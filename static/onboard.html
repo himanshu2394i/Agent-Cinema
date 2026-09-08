@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dailies Triage — New Project</title>
+  <title>Dailies Triage - New Project</title>
   <style>
     :root { font-family: system-ui, sans-serif; color: #111; background: #f6f4ef; }
     body { max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
@@ -28,7 +28,7 @@
     <h2>1. Create project</h2>
     <label>Continue existing</label>
     <select id="project-pick">
-      <option value="">— new production —</option>
+      <option value="">(new production)</option>
     </select>
     <label>Project id (slug)</label>
     <input id="project-id" type="text" placeholder="project2">
@@ -51,8 +51,8 @@
   </section>
 
   <section id="step-clips" hidden>
-    <h2>3. Clips — keep adding as the shoot continues</h2>
-    <p class="sub" id="clips-help">Drop mp4s into this movie’s Drive folder. We poll every 2 minutes. Uploading here also copies the file to that Drive folder.</p>
+    <h2>3. Clips: keep adding as the shoot continues</h2>
+    <p class="sub" id="clips-help">Drop mp4s into this production’s Drive folder. We poll every 2 minutes. Uploading here also copies the file to that Drive folder.</p>
     <p id="drive-linked" class="ok" hidden></p>
     <div id="drive-manual">
       <label>Google Drive folder URL (only if this project has no folder yet)</label>
@@ -109,7 +109,7 @@
         projectId = created.id;
         $('create-msg').className = 'ok';
         $('create-msg').textContent = created.drive_folder_id
-          ? `Created ${projectId} — Drive folder ready (drop mp4s there; we poll every 2 min)`
+          ? `Created ${projectId}. Drive folder ready (drop mp4s there; we poll every 2 min)`
           : `Created ${projectId}`;
         $('step-screenplay').hidden = false;
         $('step-clips').hidden = false;
@@ -147,7 +147,7 @@
       $('drive-manual').hidden = Boolean(folderId);
       linked.hidden = !folderId;
       if (!folderId) return;
-      linked.textContent = 'Drive folder linked — drop mp4s here: ';
+      linked.textContent = 'Drive folder linked. Drop mp4s here: ';
       const a = document.createElement('a');
       a.href = `https://drive.google.com/drive/folders/${encodeURIComponent(folderId)}`;
       a.target = '_blank';
@@ -162,12 +162,12 @@
         `.venv/Scripts/python.exe ingest_all.py assets/projects/${projectId}/clips --project ${projectId}`;
       $('agent-link').href = `/app?project=${projectId}`;
       $('agent-hint').textContent =
-        `Opens on ${projectId} already — no need to type "use project" first.`;
+        `Opens on ${projectId} already, no need to type "use project" first.`;
       $('watch-hint').textContent =
         `Drive sync runs every 2 minutes, so clips dropped in the folder appear on their own. Any clip is watchable at /watch?project=${projectId}&file=<clip>.mp4`;
       $('selects-link').href = `/projects/${projectId}/selects.csv`;
       $('selects-hint').textContent =
-        'The selects circled so far — take, score, and the reason each was picked.';
+        'The selects circled so far: take, score, and the reason each was picked.';
     }
 
     let ingestPollTimer = null;
@@ -192,7 +192,7 @@
         msg.textContent = `Ingest failed: ${status.error}`;
         return;
       }
-      let text = `Ingest done — ${status.done} clip(s) logged`;
+      let text = `Ingest done: ${status.done} clip(s) logged`;
       if (status.skipped.length) text += `, ${status.skipped.length} already up to date`;
       if (status.failed.length) text += `, ${status.failed.length} failed (${status.failed.join(', ')})`;
       msg.className = status.failed.length ? 'error' : 'ok';
@@ -241,7 +241,7 @@
       }
       ready.hidden = false;
       upload.hidden = true;
-      let text = 'Production package ready — screenplay and vocabulary on disk.';
+      let text = 'Production package ready: screenplay and vocabulary on disk.';
       ready.textContent = text + ' ';
       if (status.has_screenplay) {
         const a = document.createElement('a');

@@ -440,9 +440,9 @@
       <p class="viewer-filename" id="viewer-filename"></p>
 
       <div class="transcript" id="transcript" aria-live="polite">
-        <p class="transcript-empty">Ask for footage in plain English — try
-          &ldquo;best take of Laila at the well&rdquo; or &ldquo;what happens after the
-          wedding&rdquo;.</p>
+        <p class="transcript-empty">Ask for footage in plain English, try
+          &ldquo;close-ups of Laila at night&rdquo; or &ldquo;wide shots at
+          night&rdquo;.</p>
       </div>
 
       <form id="ask-form">
@@ -591,7 +591,7 @@
       svg.appendChild(circle);
       const num = document.createElement('span');
       num.className = 'take-num';
-      num.textContent = (take === null || take === undefined) ? '—' : String(take);
+      num.textContent = (take === null || take === undefined) ? '-' : String(take);
       wrap.append(svg, num);
       return wrap;
     }
@@ -724,7 +724,7 @@
       currentProject = projectId;
       session = null;
       updateTraceLink();
-      $('roll-line').textContent = `ROLL — ${projectId}`;
+      $('roll-line').textContent = `ROLL: ${projectId}`;
       $('export-link').href = `/projects/${encodeURIComponent(projectId)}/selects.csv`;
       $('viewer').hidden = true;
       $('viewer').removeAttribute('src');
@@ -747,7 +747,7 @@
         for (const p of listed) {
           const opt = document.createElement('option');
           opt.value = p.id;
-          opt.textContent = `${p.name} (${p.id}) — ${p.clip_count} clips`;
+          opt.textContent = `${p.name} (${p.id}), ${p.clip_count} clips`;
           pick.appendChild(opt);
         }
         let serverDefault = '';
