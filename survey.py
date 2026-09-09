@@ -21,6 +21,7 @@ appears in every clip falls below the threshold twice over.
 """
 
 import json
+import os
 import sys
 from collections import Counter
 from pathlib import Path
@@ -159,10 +160,15 @@ def main() -> int:
     from dotenv import load_dotenv
     from google import genai
 
-    from ingest import upload
+    from ingest import clip_uri, ingest_model
 
     load_dotenv()
     client = genai.Client()
+
+    # Same backend switch as ingest_all.py's upload_and_log: a bucket routes
+    # clips through Cloud Storage, which is the only path Vertex can read -
+    # its Files API raises on every call, bucket or not.
+    bucket = os.getenv("GCS_INGEST_BUCKET", "").strip() or None
 
     videos = sorted(Path(sys.argv[1]).glob("*.mp4"))
     if not videos:
@@ -181,7 +187,10 @@ def main() -> int:
             # named, so the same subject keeps the same description.
             seen_so_far = {f: list(count_terms(observations)[f]) for f in FIELDS}
             observations.append(
-                observe_clip(upload(video, client), client, known=seen_so_far)
+                observe_clip(
+                    clip_uri(video, client, bucket=bucket), client,
+                    model=ingest_model(), known=seen_so_far,
+                )
             )
             print(f"    {time.perf_counter() - start:.0f}s", file=sys.stderr)
         except Exception as error:
