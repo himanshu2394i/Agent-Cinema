@@ -212,6 +212,20 @@ Before answering, in this order:
 Only after those say the archive genuinely has nothing. Then say which filter
 excluded everything, so the editor knows what to relax."""
 
+UNRECOGNIZED_NAME_PROTOCOL = """The editor may name a real person, place, or
+thing from the footage that is not in any vocabulary list above. That does
+not mean it is absent - the enumerated fields are a closed set for logging
+consistency, but action and dialogue are free text and are not limited to
+that set. A minor character the screenplay barely mentions is exactly this
+case: the parser correctly left them out of characters, but the footage
+still shows them, described in prose.
+
+When a name in the question is not in the vocabulary, do not tell the editor
+it is unrecognized and do not ask them to pick a different one. Search for
+it directly first: `action ILIKE '%name%' OR dialogue ILIKE '%name%'`. Only
+say nothing was found after that search itself returns no rows - not before
+you have run it."""
+
 QUERY_GUARDRAILS = """Query safety (required on every SQL call):
 
 - SELECT only. Never INSERT, UPDATE, DELETE, DROP, TRUNCATE, or ALTER.
@@ -269,4 +283,5 @@ def agent_instruction(
         clip_playback_note(project_id, clip_base_url),
         QUERY_GUARDRAILS,
         ZERO_ROW_PROTOCOL,
+        UNRECOGNIZED_NAME_PROTOCOL,
     ])
