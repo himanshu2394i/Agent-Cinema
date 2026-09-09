@@ -187,3 +187,24 @@ def test_bundled_vocabulary_enables_cloud_run_project_switch(
         FakeContext({"project_id": "cloud-test"})
     )
     assert vocab.vocabulary_path_for("cloud-test") == bundled / "vocabulary.json"
+
+
+def test_missing_vocabulary_points_at_the_app_not_the_clip_service(
+    agent_module, tmp_path, monkeypatch
+):
+    """The onboarding wizard (/onboard) is served by projects_api.py, i.e.
+    dailies-app - not by dailies-clips, which only streams video and has no
+    such route. Verified live: the fallback message told an editor to visit
+    CLIP_BASE_URL + "/onboard", a URL that 404s, because it read the wrong
+    of the agent's two base-url settings.
+    """
+    import projects
+
+    monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
+    monkeypatch.setattr(agent_module, "APP_BASE_URL", "https://dailies-app.example")
+    monkeypatch.setattr(agent_module, "CLIP_BASE_URL", "https://dailies-clips.example")
+    projects.create_project("bare", "Bare")
+
+    instruction = agent_module.instruction_provider(FakeContext({"project_id": "bare"}))
+    assert "https://dailies-app.example/onboard" in instruction
+    assert "dailies-clips.example/onboard" not in instruction
