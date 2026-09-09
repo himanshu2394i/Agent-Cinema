@@ -9,12 +9,34 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 
+ONBOARD_TOKEN = "test-onboard-token"
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     import projects
     import projects_api
 
     monkeypatch.setenv("DRIVE_SYNC_INTERVAL_SECONDS", "0")
+    # Local tests exercise the wizard; production leaves ONBOARD_TOKEN unset
+    # so the same routes stay closed on the public Cloud Run URL.
+    monkeypatch.setenv("ONBOARD_TOKEN", ONBOARD_TOKEN)
+    monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
+    monkeypatch.setattr(projects_api, "PROJECTS_ROOT", tmp_path)
+    return TestClient(
+        projects_api.app,
+        headers={"X-Onboard-Token": ONBOARD_TOKEN},
+    )
+
+
+@pytest.fixture
+def public_client(tmp_path, monkeypatch):
+    """No onboard token — matches the public Cloud Run deploy."""
+    import projects
+    import projects_api
+
+    monkeypatch.setenv("DRIVE_SYNC_INTERVAL_SECONDS", "0")
+    monkeypatch.delenv("ONBOARD_TOKEN", raising=False)
     monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
     monkeypatch.setattr(projects_api, "PROJECTS_ROOT", tmp_path)
     return TestClient(projects_api.app)
@@ -774,3 +796,86 @@ def test_missing_clip_404s_instead_of_redirecting_to_itself(client, monkeypatch)
 
     response = client.get("/projects/demo/media/A001_C0007.mp4", follow_redirects=False)
     assert response.status_code == 404
+
+
+# --- Public onboard lock -------------------------------------------------
+# The Cloud Run URL is public for judging. Create/upload/ingest must not be
+# reachable without ONBOARD_TOKEN; chat (session/ask) and the desk stay open.
+
+
+def test_public_deploy_rejects_onboard_mutations(public_client):
+    assert public_client.post(
+        "/projects", json={"id": "x", "name": "X"}
+    ).status_code == 404
+    assert public_client.post(
+        "/projects/x/drive", json={"folder": "https://drive.google.com/drive/folders/1"}
+    ).status_code == 404
+    assert public_client.post("/projects/x/drive/sync").status_code == 404
+    assert public_client.post(
+        "/projects/x/screenplay",
+        files={"file": ("s.pdf", b"%PDF", "application/pdf")},
+    ).status_code == 404
+    assert public_client.post(
+        "/projects/x/clips",
+        files={"file": ("a.mp4", b"data", "video/mp4")},
+    ).status_code == 404
+    assert public_client.post("/projects/x/ingest").status_code == 404
+
+
+def test_public_deploy_hides_onboard_page(public_client):
+    assert public_client.get("/onboard").status_code == 404
+
+
+def test_wrong_onboard_token_is_rejected(tmp_path, monkeypatch):
+    import projects
+    import projects_api
+
+    monkeypatch.setenv("DRIVE_SYNC_INTERVAL_SECONDS", "0")
+    monkeypatch.setenv("ONBOARD_TOKEN", "correct-token")
+    monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
+    monkeypatch.setattr(projects_api, "PROJECTS_ROOT", tmp_path)
+    client = TestClient(projects_api.app, headers={"X-Onboard-Token": "wrong"})
+    assert client.post("/projects", json={"id": "x", "name": "X"}).status_code == 404
+    assert client.get("/onboard").status_code == 404
+
+
+def test_onboard_token_query_param_unlocks_page(tmp_path, monkeypatch):
+    import projects
+    import projects_api
+
+    monkeypatch.setenv("DRIVE_SYNC_INTERVAL_SECONDS", "0")
+    monkeypatch.setenv("ONBOARD_TOKEN", "correct-token")
+    monkeypatch.setattr(projects, "PROJECTS_ROOT", tmp_path)
+    monkeypatch.setattr(projects_api, "PROJECTS_ROOT", tmp_path)
+    client = TestClient(projects_api.app)
+    assert client.get("/onboard?token=correct-token").status_code == 200
+
+
+def test_public_chat_routes_stay_open(public_client, monkeypatch):
+    """Judges must still be able to open a session and ask questions."""
+    import projects
+    import projects_api
+
+    projects.create_project("demo", "Demo")
+    monkeypatch.setattr(
+        projects_api,
+        "_adk_post_json",
+        lambda path, payload, timeout=15: {"id": "sess-1"},
+    )
+    monkeypatch.setattr(
+        projects_api,
+        "_adk_post_raw",
+        lambda path, payload, timeout=120: (
+            b'data: {"content": {"role": "model", "parts": [{"text": "ok"}]}}\n\n'
+        ),
+    )
+    assert public_client.post("/projects/demo/session").status_code == 200
+    assert public_client.post(
+        "/projects/demo/ask",
+        json={"session_id": "sess-1", "question": "which clips show Ben?"},
+    ).status_code == 200
+
+
+def test_app_page_has_no_public_onboard_link(client):
+    body = client.get("/app").text
+    assert 'href="/onboard"' not in body
