@@ -171,3 +171,25 @@ def test_alter_statements_add_every_column_idempotently():
     joined = " ".join(stmts)
     for field in MODEL_FIELDS:
         assert f"IF NOT EXISTS {field.name} " in joined
+
+
+def test_agent_instruction_searches_an_unrecognized_name_before_asking():
+    """A user names a real person from the footage who isn't in the closed
+    characters vocabulary (e.g. a minor character the screenplay barely
+    mentions). The enumerated fields are closed, but action/dialogue are
+    free text and can name someone the vocabulary doesn't. Verified live:
+    without this instruction, the agent recognizes the name isn't in its
+    enumerated list and asks the editor to pick a different one or a
+    different character, instead of searching the prose fields for it -
+    even though ZERO_ROW_PROTOCOL already tells it to search prose after a
+    query returns zero rows. The gap is that the agent never issues that
+    query in the first place; it short-circuits before ever running SQL.
+    This must not be conditioned on "after a query returns no rows" - it
+    has to fire before the agent asks a clarifying question at all.
+    """
+    from shot_schema import agent_instruction
+
+    text = agent_instruction(VOCAB)
+    assert "not in any vocabulary" in text.lower() or "not in the vocabulary" in text.lower()
+    assert "do not ask" in text.lower()
+    assert "ILIKE" in text
