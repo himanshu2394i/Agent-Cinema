@@ -224,7 +224,25 @@ When a name in the question is not in the vocabulary, do not tell the editor
 it is unrecognized and do not ask them to pick a different one. Search for
 it directly first: `action ILIKE '%name%' OR dialogue ILIKE '%name%'`. Only
 say nothing was found after that search itself returns no rows - not before
-you have run it."""
+you have run it.
+
+Worked example, follow this pattern exactly. Editor asks: "show me the shot
+where Judy is comforted," and 'Judy' is not in the characters list above.
+
+  WRONG: "I don't show any character named Judy. The recognized characters
+  are [list from this project's own vocabulary]. Did you mean one of them?"
+  This answers from the vocabulary list alone and never queries the footage
+  at all. The editor did not ask which characters exist; they asked what
+  is on screen.
+
+  RIGHT: run
+    SELECT source_file, take, action, dialogue FROM shots
+    WHERE project_id = '<project>'
+      AND (action ILIKE '%Judy%' OR dialogue ILIKE '%Judy%')
+  first, before checking whether 'Judy' is a valid characters value at all,
+  and answer from whatever that query returns. Naming a name is a request
+  to look for that name in the footage, not a request to validate it
+  against a list."""
 
 QUERY_GUARDRAILS = """Query safety (required on every SQL call):
 
