@@ -42,6 +42,11 @@ load_dotenv()
 # and `set_active_project` is what writes that.
 DEFAULT_PROJECT_ID = os.getenv("PROJECT_ID", "notld_1968")
 CLIP_BASE_URL = os.getenv("CLIP_BASE_URL", "http://127.0.0.1:8080")
+# Where /onboard actually lives (projects_api.py, i.e. dailies-app) - not
+# CLIP_BASE_URL, which points at the clip-streaming service and has no such
+# route. Same host as CLIP_BASE_URL in local single-process dev, a different
+# Cloud Run service once deployed.
+APP_BASE_URL = os.getenv("APP_BASE_URL", CLIP_BASE_URL)
 
 
 def active_project(state) -> str:
@@ -109,7 +114,7 @@ def instruction_provider(ctx) -> str:
             f" project is {project_id!r}, but its screenplay has not been"
             f" parsed yet, so there is no vocabulary to query against.\n\n"
             f"Tell the editor to upload a screenplay for {project_id!r} at"
-            f" {CLIP_BASE_URL}/onboard, or to name another production."
+            f" {APP_BASE_URL}/onboard, or to name another production."
             f" Projects ready now: {others}. Use set_active_project to switch"
             f" to one. Do not query the database until then."
         )

@@ -28,6 +28,10 @@ gcloud projects add-iam-policy-binding $Project `
 Write-Host "==> Bundling agent dependencies..."
 New-Item -ItemType Directory -Force -Path "dailies_agent\assets" | Out-Null
 Copy-Item "assets\vocabulary.json" "dailies_agent\assets\vocabulary.json" -Force
+# Clean before rebuilding: this only copies IN, so a project archived since
+# the last deploy (moved out of assets\projects) would otherwise stay
+# bundled forever and the agent keeps advertising it as ready.
+Remove-Item -Recurse -Force "dailies_agent\assets\projects" -ErrorAction SilentlyContinue
 Get-ChildItem "assets\projects\*\vocabulary.json" -ErrorAction SilentlyContinue | ForEach-Object {
   $proj = $_.Directory.Name
   $target = Join-Path "dailies_agent\assets\projects" $proj
@@ -88,6 +92,15 @@ Write-Host "==> Deploying public clip watch service (CLIP_BASE_URL)..."
 $clipBase = gcloud run services describe dailies-clips --region=$Region --project=$Project --format="value(status.url)"
 if (-not $clipBase) { throw "dailies-clips URL missing after deploy-clips.ps1" }
 
+# The agent tells an editor to upload a screenplay at "$appBase/onboard" when
+# a production has no vocabulary yet. dailies-app (projects_api.py) is what
+# actually serves /onboard - dailies-clips only streams video and has no
+# such route. Best-effort lookup: if dailies-app has never been deployed on
+# this project, leave it unset rather than fail the whole agent deploy over
+# a link in one fallback message.
+$appBase = gcloud run services describe dailies-app --region=$Region --project=$Project --format="value(status.url)" 2>$null
+if (-not $appBase) { Write-Host "    dailies-app not found yet; onboarding link will be blank until it is deployed" }
+
 Write-Host "==> Wiring env vars + secret..."
 $chHost = ((Get-Content ".env" | Where-Object { $_ -match '^CLICKHOUSE_HOST=' }) -replace '^CLICKHOUSE_HOST=','').Trim()
 # --min-instances=1: without it Cloud Run scales this service to zero between
@@ -97,7 +110,7 @@ $chHost = ((Get-Content ".env" | Where-Object { $_ -match '^CLICKHOUSE_HOST=' })
 # Costs a small continuous fee for the idle instance instead of nothing;
 # worth it so a judge's first question doesn't look like it hung.
 gcloud run services update $Service --region=$Region --project=$Project `
-  --set-env-vars="CLICKHOUSE_HOST=$chHost,CLICKHOUSE_PORT=8443,CLICKHOUSE_USER=default,CLICKHOUSE_SECURE=true,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=$Project,GOOGLE_CLOUD_LOCATION=$Region,AGENT_MODEL=gemini-2.5-flash,CLIP_BASE_URL=$clipBase" `
+  --set-env-vars="CLICKHOUSE_HOST=$chHost,CLICKHOUSE_PORT=8443,CLICKHOUSE_USER=default,CLICKHOUSE_SECURE=true,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=$Project,GOOGLE_CLOUD_LOCATION=$Region,AGENT_MODEL=gemini-2.5-flash,CLIP_BASE_URL=$clipBase,APP_BASE_URL=$appBase" `
   --set-secrets="CLICKHOUSE_PASSWORD=clickhouse-password:latest" `
   --min-instances=1
 
