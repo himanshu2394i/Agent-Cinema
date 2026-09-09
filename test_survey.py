@@ -1,7 +1,9 @@
 import json
+import sys
 
 import pytest
 
+import survey
 from survey import (
     count_terms, observe_clip, propose_vocabulary, sample_evenly,
 )
@@ -119,3 +121,65 @@ def test_the_first_clip_has_nothing_to_carry_forward():
     prompt = next(p["text"] for p in client.models.calls[0]["contents"] if "text" in p)
     # No empty "already seen:" section confusing the model on clip one.
     assert "already" not in prompt.lower()
+
+
+def test_main_routes_through_clip_uri_not_the_raw_files_api(monkeypatch, tmp_path):
+    """On Vertex there is no Files API - client.files.upload() (what the raw
+    upload() in ingest.py calls) always raises "This method is only
+    supported in the Gemini Developer client." there. ingest_all.py avoids
+    this by going through clip_uri(), which branches to a GCS upload when
+    GCS_INGEST_BUCKET is set. main() must do the same instead of calling
+    upload() directly, or every clip fails on Vertex."""
+    (tmp_path / "A001_C0001.mp4").write_bytes(b"fake")
+
+    monkeypatch.setenv("GCS_INGEST_BUCKET", "test-bucket")
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "google.genai.Client",
+        lambda: FakeClient(json.dumps(obs(characters=["Ben"]))),
+    )
+
+    calls = {"clip_uri": 0, "upload": 0}
+
+    def fake_clip_uri(video, client, bucket=None, storage_client=None, project_id=None):
+        calls["clip_uri"] += 1
+        assert bucket == "test-bucket"
+        return f"gs://{bucket}/{video.name}"
+
+    def fake_upload(video, client):
+        # This is the real Vertex failure mode: the Files API is simply not
+        # served there, whatever the client is otherwise configured with.
+        calls["upload"] += 1
+        raise ValueError("This method is only supported in the Gemini Developer client.")
+
+    monkeypatch.setattr("ingest.clip_uri", fake_clip_uri)
+    monkeypatch.setattr("ingest.upload", fake_upload)
+    monkeypatch.setattr(sys, "argv", ["survey.py", str(tmp_path), "1"])
+
+    assert survey.main() == 0
+    assert calls["upload"] == 0
+    assert calls["clip_uri"] == 1
+
+
+def test_main_passes_ingest_model_not_the_hardcoded_default(monkeypatch, tmp_path):
+    """observe_clip()'s default model is "gemini-3.6-flash" - the Developer
+    API's name for it. On Vertex that 404s: "Publisher model ... was not
+    found". ingest.py already resolves the right model per backend via
+    ingest_model() (used correctly by ingest_all.py); main() must pass that
+    through instead of relying on observe_clip's hardcoded default."""
+    (tmp_path / "A001_C0001.mp4").write_bytes(b"fake")
+
+    monkeypatch.setenv("GCS_INGEST_BUCKET", "test-bucket")
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: None)
+    client = FakeClient(json.dumps(obs(characters=["Ben"])))
+    monkeypatch.setattr("google.genai.Client", lambda: client)
+    monkeypatch.setattr(
+        "ingest.clip_uri",
+        lambda video, client, bucket=None, storage_client=None, project_id=None:
+            f"gs://{bucket}/{video.name}",
+    )
+    monkeypatch.setattr("ingest.ingest_model", lambda: "gemini-2.5-flash")
+    monkeypatch.setattr(sys, "argv", ["survey.py", str(tmp_path), "1"])
+
+    assert survey.main() == 0
+    assert client.models.calls[0]["model"] == "gemini-2.5-flash"
