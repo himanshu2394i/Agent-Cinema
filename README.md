@@ -45,6 +45,62 @@ ClickHouse, and the agent writes real SQL against them through the official
 `mcp-clickhouse` MCP server - an editor hunting a specific take needs complete
 results, not approximately-similar ones.
 
+## Decisions and tradeoffs
+
+**Structured SQL over vector search.** An editor hunting one take needs every
+matching row, not nearest neighbours. ClickHouse holds typed shot columns;
+the agent writes real `SELECT`s through the official `mcp-clickhouse` MCP
+server (read-only, with query timeouts). We trade semantic fuzzy match for
+complete, filterable answers — and for the ability to explain *why* a query
+returned nothing.
+
+**Screenplay as schema, not a hardcoded cast list.** Every production names
+its own characters, locations, and props. Gemini parses the PDF once into a
+per-project vocabulary; that same vocabulary constrains what ingest may write
+and what the agent may filter on. The cost is incompleteness: a minor
+character barely named in the script can be missing from the enum even when
+they appear on camera.
+
+**Closed enums + open prose (prefer `unknown` over a wrong name).** When the
+camera shows someone the vocabulary never listed, the logger must not invent
+a cast member to satisfy the schema. Enum fields may return `unknown`; free-
+text `action` / `dialogue` still capture what was seen. Editors forgive empty
+results; they do not forgive a shot labelled with the wrong actor. The Judy
+row in *Night of the Living Dead* is the worked example: `characters: ['Tom',
+'unknown']` beside an action line that names her — findable via prose search
+when the enum cannot.
+
+**One field table, three artefacts.** `shot_schema.py` generates the Gemini
+response schema, the ClickHouse DDL, and the agent prompt from one source.
+A test fails if DDL and response schema cover different field names. That is
+not a full anti-drift guarantee: it does not check that allowed *values* stay
+aligned across prompt and rows.
+
+**Official MCP over a bespoke ClickHouse wrapper.** The agent talks to
+ClickHouse the same way any MCP client would. That keeps the demo honest for
+the ClickHouse track and avoids a private query layer that only this repo
+understands. The tradeoff is dependency discipline: ADK needs `mcp<2`, so
+`mcp-clickhouse` is pinned to `0.4.1` — newer releases pull `mcp>=2` and break
+the Cloud Run image build.
+
+**Finished features as stand-in dailies.** Real multi-take dailies with slates
+were not available. Public-domain features cut into camera-roll-named clips
+give real photography and coverage for logging tests, but not take numbers or
+scene slates — so `scene` is often `unknown` on purpose. Mismatched
+vocabulary vs footage (e.g. legend geography vs Kashmir locations) is left
+visible in the rows rather than papered over.
+
+**Skip already-logged clips on re-ingest.** Gemini quota is finite. After a
+partial batch failure, re-running the whole directory would re-spend calls on
+clips already safely in ClickHouse. `ingest_all.py` checks what is logged and
+skips it unless `--force` is passed.
+
+**Public chat, locked onboarding.** The judging URL must stay open for
+`/app`, sessions, and ask. Create / upload / Drive / ingest and `/onboard`
+are gated behind `ONBOARD_TOKEN` (unset on Cloud Run → 404) so strangers
+cannot overwrite vocabularies or burn paid Gemini calls. Local unlock:
+`ONBOARD_TOKEN=…` and `/onboard?token=…`.
+
 ## Layout
 
 | File | What it does |
@@ -140,7 +196,9 @@ project:
     .venv/Scripts/adk.exe api_server
     .venv/Scripts/python.exe -m uvicorn projects_api:app --reload --port 8080
 
-Open http://127.0.0.1:8080/onboard. After clips are on disk (upload or Drive
+Open http://127.0.0.1:8080/onboard?token=YOUR_TOKEN (set `ONBOARD_TOKEN` in
+`.env`; without it the wizard and create/upload/ingest routes return 404 —
+see **Decisions and tradeoffs**). After clips are on disk (upload or Drive
 sync), ingest from the wizard's button (or the CLI it shows as a fallback),
 then open the dailies desk - `/app` - which the wizard links to already
 scoped to that project.
