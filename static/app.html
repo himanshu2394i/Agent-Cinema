@@ -439,11 +439,7 @@
       </div>
       <p class="viewer-filename" id="viewer-filename"></p>
 
-      <div class="transcript" id="transcript" aria-live="polite">
-        <p class="transcript-empty">Ask for footage in plain English, try
-          &ldquo;close-ups of Laila at night&rdquo; or &ldquo;wide shots at
-          night&rdquo;.</p>
-      </div>
+      <div class="transcript" id="transcript" aria-live="polite"></div>
 
       <form id="ask-form">
         <input id="ask-input" type="text" autocomplete="off"
@@ -457,6 +453,15 @@
     const $ = (id) => document.getElementById(id);
 
     let currentProject = '';
+    // Example queries, verified against real logged rows for each
+    // production - never a generic placeholder, since a query that returns
+    // nothing on the active production is worse than no example at all.
+    const EXAMPLE_QUERIES = {
+      lailamajnu: ['close-ups of Laila at night', 'wide shots at night'],
+      notld_1968: ['Ben indoors', 'night shots'],
+      intolerance_1916: ['wide shots at night', 'exterior shots'],
+    };
+    const DEFAULT_EXAMPLES = ['a wide shot at night', 'a close-up'];
     // Where clips actually live. Empty means "same origin as this page" -
     // true for local single-server dev, where projects_api serves both.
     // Deployed, the app and the clip player are two separate Cloud Run
@@ -551,6 +556,19 @@
       const t = $('transcript');
       const empty = t.querySelector('.transcript-empty');
       if (empty) empty.remove();
+    }
+
+    function resetTranscriptForProject(projectId) {
+      const t = $('transcript');
+      t.textContent = '';
+      const examples = EXAMPLE_QUERIES[projectId] || DEFAULT_EXAMPLES;
+      const p = document.createElement('p');
+      p.className = 'transcript-empty';
+      p.append(
+        'Ask for footage in plain English, try “' + examples[0] +
+          '” or “' + examples[1] + '”.'
+      );
+      t.appendChild(p);
     }
 
     function addTurn(kind, labelText, bodyText, isProse) {
@@ -730,6 +748,7 @@
       $('viewer').removeAttribute('src');
       $('viewer-empty').hidden = false;
       $('viewer-filename').textContent = '';
+      resetTranscriptForProject(projectId);
       setActiveBadge('connecting…', false);
       await Promise.all([loadSelects(projectId), startSession(projectId)]);
       history.replaceState({}, '', `/app?project=${encodeURIComponent(projectId)}`);
