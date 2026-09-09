@@ -86,6 +86,17 @@ try {
   }
   Remove-Item -Recurse -Force $stashRoot -ErrorAction SilentlyContinue
 }
+# PowerShell does not treat a non-zero exit from an external .exe as a
+# terminating error on its own - $ErrorActionPreference="Stop" at the top of
+# this script does not catch it. Without this check, a failed image build
+# (e.g. a Cloud Build step failing on a dependency conflict) was silently
+# swallowed: the script carried on to wire env vars and re-grant IAM onto
+# whatever image was already live, reported overall success, and nothing
+# from this deploy ever actually shipped. Verified this happened for real -
+# the running image was a week old while every later step kept "succeeding".
+if ($LASTEXITCODE -ne 0) {
+  throw "adk deploy cloud_run failed (exit $LASTEXITCODE) - see the build log above. Nothing below this line ships until that build succeeds."
+}
 
 Write-Host "==> Deploying public clip watch service (CLIP_BASE_URL)..."
 & "$PSScriptRoot\deploy-clips.ps1"

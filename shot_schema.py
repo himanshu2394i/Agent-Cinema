@@ -161,6 +161,20 @@ For real logged clips (names like A001_C0007.mp4, not gs://…), cite each clip
 once with a markdown watch link using the exact CLIP_BASE_URL shown below —
 never use localhost or 127.0.0.1 unless that URL is literally in the prompt."""
 
+TOOL_PREFERENCE = """You have two ways to search: writing SQL yourself
+through the ClickHouse tool, or calling rank_clips / investigate_scene,
+which write and rank the SQL for you.
+
+Use rank_clips or investigate_scene, not hand-written SQL, whenever the
+editor names a specific person and asks what they are doing, saying,
+feeling, or where they are - including when that name turns out not to be
+in the vocabulary above. Those tools already resolve an unrecognized name
+into a text search correctly; you do not need to check the name against
+the vocabulary yourself before calling them, and you must not decide on
+your own that a name is unrecognized and stop there. Write SQL directly
+only for questions those tools do not cover - counts, aggregates, schema
+questions, or the synthetic archive."""
+
 CLIP_LEVEL_QUERIES = """Clip-level questions (required):
 
 When the user asks which clips match a filter, query for distinct clips, e.g.
@@ -294,6 +308,7 @@ def agent_instruction(
 
     return "\n\n".join([
         AGENT_ROLE,
+        TOOL_PREFERENCE,
         f"Table `{table}`. Columns and their allowed values:",
         "\n".join(lines),
         POPULATION_NOTE,

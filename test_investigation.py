@@ -316,3 +316,114 @@ def test_each_recorded_step_is_written_back_to_session_state():
     assert len(ctx.state.persisted["investigation"]) == 2, (
         "the second step must be assigned back, not just appended"
     )
+
+
+def test_rank_clips_treats_an_unrecognized_name_as_a_keyword_search():
+    """A named person outside the vocabulary can never match
+    has(characters, name) - that array was only ever populated from the
+    enumerated vocabulary, so a name the vocabulary never included is
+    guaranteed absent from it, by construction, regardless of what the
+    footage actually shows. Verified live: the deployed agent asked for
+    'Judy' via the characters filter and got a dead, unconditionally-empty
+    query every time, then reported nothing found - even though the row
+    exists, naming her in its free-text action field. rank_clips must not
+    forward an unrecognized name into that dead filter; it has to become a
+    keyword (the prose search) instead, so the tool itself is correct
+    regardless of whether the model remembers to ask for it that way.
+    """
+    import dailies_agent.editorial_tools as tools
+
+    captured = {}
+
+    def fake_rows(_client, _project, criteria, **kwargs):
+        captured["criteria"] = criteria
+        return []
+
+    class FakeVocab:
+        characters = ["Tom", "Barbara", "Ben"]
+
+    monkeypatch_targets = []
+    import dailies_agent.vocab as vocab_module
+    original_load = vocab_module.load_vocabulary
+    vocab_module.load_vocabulary = lambda *a, **k: FakeVocab()
+    try:
+        tools._project = lambda ctx: "notld_1968"
+        import dailies_agent.editorial as editorial_module
+        original_fetch = editorial_module.fetch_matching_shots
+        editorial_module.fetch_matching_shots = fake_rows
+        try:
+            tools.rank_clips(characters=["Judy"], tool_context=_FakeCtx())
+        finally:
+            editorial_module.fetch_matching_shots = original_fetch
+    finally:
+        vocab_module.load_vocabulary = original_load
+
+    criteria = captured["criteria"]
+    assert "Judy" not in criteria.characters
+    assert "Judy" in criteria.keywords
+
+
+def test_rank_clips_still_filters_normally_on_a_recognized_character():
+    """The fallback must not swallow a real character filter - Tom is in
+    the vocabulary, so it stays a characters filter, not a keyword."""
+    import dailies_agent.editorial_tools as tools
+    import dailies_agent.vocab as vocab_module
+    import dailies_agent.editorial as editorial_module
+
+    captured = {}
+
+    def fake_rows(_client, _project, criteria, **kwargs):
+        captured["criteria"] = criteria
+        return []
+
+    class FakeVocab:
+        characters = ["Tom", "Barbara", "Ben"]
+
+    original_load = vocab_module.load_vocabulary
+    original_fetch = editorial_module.fetch_matching_shots
+    original_project = tools._project
+    vocab_module.load_vocabulary = lambda *a, **k: FakeVocab()
+    editorial_module.fetch_matching_shots = fake_rows
+    tools._project = lambda ctx: "notld_1968"
+    try:
+        tools.rank_clips(characters=["Tom"], tool_context=_FakeCtx())
+    finally:
+        vocab_module.load_vocabulary = original_load
+        editorial_module.fetch_matching_shots = original_fetch
+        tools._project = original_project
+
+    criteria = captured["criteria"]
+    assert criteria.characters == ["Tom"]
+    assert "Tom" not in criteria.keywords
+
+
+def test_investigate_scene_also_falls_back_an_unrecognized_name_to_keywords():
+    import dailies_agent.editorial_tools as tools
+    import dailies_agent.vocab as vocab_module
+    import dailies_agent.editorial as editorial_module
+
+    captured = {}
+
+    def fake_rows(_client, _project, criteria, **kwargs):
+        captured["criteria"] = criteria
+        return []
+
+    class FakeVocab:
+        characters = ["Tom", "Barbara", "Ben"]
+
+    original_load = vocab_module.load_vocabulary
+    original_fetch = editorial_module.fetch_matching_shots
+    original_project = tools._project
+    vocab_module.load_vocabulary = lambda *a, **k: FakeVocab()
+    editorial_module.fetch_matching_shots = fake_rows
+    tools._project = lambda ctx: "notld_1968"
+    try:
+        tools.investigate_scene(characters=["Judy"], tool_context=_FakeCtx())
+    finally:
+        vocab_module.load_vocabulary = original_load
+        editorial_module.fetch_matching_shots = original_fetch
+        tools._project = original_project
+
+    criteria = captured["criteria"]
+    assert "Judy" not in criteria.characters
+    assert "Judy" in criteria.keywords
