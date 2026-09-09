@@ -4,7 +4,8 @@ Run standalone:
     uvicorn projects_api:app --reload --port 8080
 
 Or mount from another ASGI app. Serves /onboard wizard at GET /onboard
-and /watch for HTML5 clip playback when the agent cites a source_file.
+(gated by ONBOARD_TOKEN) and /watch for HTML5 clip playback when the agent
+cites a source_file.
 """
 
 from __future__ import annotations
@@ -15,12 +16,13 @@ import io
 import json
 import logging
 import os
+import secrets
 from contextlib import asynccontextmanager
 from html import escape
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from urllib.parse import urlencode, urlsplit
@@ -94,6 +96,28 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Dailies Triage Projects API", lifespan=lifespan)
 
 
+def require_onboard(request: Request) -> None:
+    """Gate create/upload/ingest and the wizard page itself.
+
+    The judging URL is public. Leaving these routes open lets anyone create
+    productions, overwrite vocabularies, upload files, and spend Gemini
+    quota. Set ONBOARD_TOKEN in the environment to unlock them (header
+    X-Onboard-Token, or ?token= for opening /onboard in a browser). When
+    the token is unset - the Cloud Run default - every gated route 404s so
+    we do not advertise that onboarding exists.
+    """
+    expected = os.getenv("ONBOARD_TOKEN", "").strip()
+    if not expected:
+        raise HTTPException(status_code=404, detail="not found")
+    provided = (
+        request.headers.get("X-Onboard-Token")
+        or request.query_params.get("token")
+        or ""
+    ).strip()
+    if len(provided) != len(expected) or not secrets.compare_digest(provided, expected):
+        raise HTTPException(status_code=404, detail="not found")
+
+
 class CreateProject(BaseModel):
     id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
     name: str
@@ -112,7 +136,7 @@ class ProjectStatus(BaseModel):
     drive_folder_id: str | None = None
 
 
-@app.post("/projects", status_code=201)
+@app.post("/projects", status_code=201, dependencies=[Depends(require_onboard)])
 def api_create_project(body: CreateProject) -> dict:
     try:
         create_project(body.id, body.name)
@@ -221,7 +245,7 @@ def api_project_status(project_id: str) -> ProjectStatus:
     )
 
 
-@app.post("/projects/{project_id}/drive")
+@app.post("/projects/{project_id}/drive", dependencies=[Depends(require_onboard)])
 def api_attach_drive(project_id: str, body: AttachDrive) -> dict:
     try:
         folder_id = set_drive_folder(project_id, body.folder)
@@ -232,7 +256,7 @@ def api_attach_drive(project_id: str, body: AttachDrive) -> dict:
     return {"id": project_id, "drive_folder_id": folder_id}
 
 
-@app.post("/projects/{project_id}/drive/sync")
+@app.post("/projects/{project_id}/drive/sync", dependencies=[Depends(require_onboard)])
 def api_sync_drive(project_id: str) -> dict:
     if not project_dir(project_id).exists():
         raise HTTPException(status_code=404, detail="project not found")
@@ -248,7 +272,7 @@ def api_sync_drive(project_id: str) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/projects/{project_id}/screenplay")
+@app.post("/projects/{project_id}/screenplay", dependencies=[Depends(require_onboard)])
 async def api_upload_screenplay(project_id: str, file: UploadFile = File(...)) -> dict:
     if not project_dir(project_id).exists():
         raise HTTPException(status_code=404, detail="project not found")
@@ -300,7 +324,7 @@ def api_get_screenplay(project_id: str):
     return FileResponse(path, media_type="application/pdf", filename=path.name)
 
 
-@app.post("/projects/{project_id}/clips")
+@app.post("/projects/{project_id}/clips", dependencies=[Depends(require_onboard)])
 async def api_upload_clip(project_id: str, file: UploadFile = File(...)) -> dict:
     if not project_dir(project_id).exists():
         raise HTTPException(status_code=404, detail="project not found")
@@ -371,7 +395,11 @@ def _run_ingest(project_id: str) -> None:
         status.update(running=False, error=str(exc))
 
 
-@app.post("/projects/{project_id}/ingest", status_code=202)
+@app.post(
+    "/projects/{project_id}/ingest",
+    status_code=202,
+    dependencies=[Depends(require_onboard)],
+)
 def api_start_ingest(project_id: str, background_tasks: BackgroundTasks) -> dict:
     """Kick off ingest of this project's clips in the background.
 
@@ -540,7 +568,6 @@ def watch_clip(
   <header>
     <strong>{safe_file}</strong>
     · project <code>{safe_project}</code>
-    · <a href="/onboard">onboard</a>
   </header>
   <main>
     <video controls autoplay src="{media}"></video>
@@ -894,8 +921,7 @@ def investigation_trace(
   <main>
     <h1>Investigation</h1>
     <p class="meta">session <code>{escape(session)}</code>
-      &middot; {len(rows)} step(s){budget_note}
-      &middot; <a href="/onboard" style="color:#9cf">onboard</a></p>
+      &middot; {len(rows)} step(s){budget_note}</p>
     {body}
     {footer}
   </main>
@@ -904,7 +930,7 @@ def investigation_trace(
 """
 
 
-@app.get("/onboard")
+@app.get("/onboard", dependencies=[Depends(require_onboard)])
 def onboard_page():
     page = STATIC / "onboard.html"
     if not page.exists():

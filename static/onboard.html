@@ -83,9 +83,19 @@
   <script>
     const $ = (id) => document.getElementById(id);
     let projectId = '';
+    const onboardToken = new URLSearchParams(location.search).get('token') || '';
+
+    function onboardQuery(extra = {}) {
+      const params = new URLSearchParams(extra);
+      if (onboardToken) params.set('token', onboardToken);
+      const q = params.toString();
+      return q ? `?${q}` : '';
+    }
 
     async function api(path, opts = {}) {
-      const res = await fetch(path, opts);
+      const headers = new Headers(opts.headers || {});
+      if (onboardToken) headers.set('X-Onboard-Token', onboardToken);
+      const res = await fetch(path, { ...opts, headers });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         const d = body.detail;
@@ -115,7 +125,7 @@
         $('step-clips').hidden = false;
         showDriveState(created.drive_folder_id);
         if (created.drive_folder_id) showChatStep();
-        history.replaceState({}, '', `/onboard?project=${encodeURIComponent(projectId)}`);
+        history.replaceState({}, '', `/onboard${onboardQuery({ project: projectId })}`);
       } catch (e) {
         $('create-msg').className = 'error';
         $('create-msg').textContent = e.message;
@@ -277,7 +287,7 @@
         } catch (_) { /* none */ }
       }
       if (status.clip_count > 0 || status.drive_folder_id) showChatStep();
-      history.replaceState({}, '', `/onboard?project=${encodeURIComponent(id)}`);
+      history.replaceState({}, '', `/onboard${onboardQuery({ project: id })}`);
     }
 
     $('project-pick').onchange = async () => {
@@ -299,9 +309,12 @@
           opt.textContent = `${p.name} (${p.id})`;
           pick.appendChild(opt);
         }
+        const mostClips = listed.reduce(
+          (best, p) => (p.clip_count > (best?.clip_count ?? -1) ? p : best), null
+        );
         const wanted = new URLSearchParams(location.search).get('project')
-          || (listed.some((p) => p.id === 'lailamajnu') ? 'lailamajnu' : '')
-          || (listed.length ? listed[listed.length - 1].id : '');
+          || mostClips?.id
+          || (listed.length ? listed[0].id : '');
         if (wanted && listed.some((p) => p.id === wanted)) {
           pick.value = wanted;
           await resume(wanted);
