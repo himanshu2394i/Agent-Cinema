@@ -3,7 +3,10 @@ google-genai
 # mcp must stay below 2.0: ADK 2.7.1 imports mcp.shared.session.ProgressFnT,
 # which mcp 2.0 removed. Installing mcp>=2.0 breaks the agent at import time.
 mcp<2
-mcp-clickhouse
+# Pinned: mcp-clickhouse>0.4.1 pulls in a newer fastmcp line that splits out
+# fastmcp-slim, which requires mcp>=2.0 - a direct conflict with mcp<2 above.
+# This exact version is proven working (fastmcp 2.14.7, no fastmcp-slim).
+mcp-clickhouse==0.4.1
 clickhouse-connect
 python-dotenv
 fastapi

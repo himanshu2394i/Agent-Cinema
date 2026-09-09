@@ -63,6 +63,44 @@ def _sequence_links(
     return sequence
 
 
+def _known_characters(project_id: str) -> set[str]:
+    """This project's own vocabulary, lowercased for a case-loose match.
+
+    Missing or unloadable vocabulary degrades to an empty set rather than
+    raising - every requested name then falls through to the keyword path
+    below, which is the safe direction to fail in.
+    """
+    try:
+        from .vocab import load_vocabulary
+
+        vocabulary = load_vocabulary(project_id=project_id)
+    except Exception:
+        return set()
+    return {c.strip().lower() for c in vocabulary.characters}
+
+
+def _split_known_names(
+    characters: list[str], project_id: str | None
+) -> tuple[list[str], list[str]]:
+    """A name outside this project's vocabulary can never match
+    has(characters, name) - that array is only ever populated from the
+    vocabulary, so the filter is dead on arrival regardless of what the
+    footage shows. Verified live: the deployed agent filtered on an
+    unrecognized name, got an unconditionally empty result, and reported
+    nothing found - even though the row exists, naming that person in its
+    free-text action field. Route an unrecognized name into a keyword
+    search instead, so asking about someone by name still finds them if
+    the footage does, the same as searching prose directly would.
+    """
+    if not characters or not project_id:
+        return list(characters or []), []
+    known = _known_characters(project_id)
+    recognized, unrecognized = [], []
+    for name in characters:
+        (recognized if name.strip().lower() in known else unrecognized).append(name)
+    return recognized, unrecognized
+
+
 def _criteria(
     characters: list[str] | None = None,
   time_of_day: list[str] | None = None,
@@ -70,14 +108,16 @@ def _criteria(
   location: str | None = None,
   shot_size: list[str] | None = None,
   keywords: list[str] | None = None,
+  project_id: str | None = None,
 ) -> SearchCriteria:
+    recognized, unrecognized = _split_known_names(characters or [], project_id)
     return SearchCriteria(
-        characters=characters or [],
+        characters=recognized,
         time_of_day=time_of_day or [],
         int_ext=int_ext or [],
         location=(location or "").strip() or None,
         shot_size=shot_size or [],
-        keywords=keywords or [],
+        keywords=[*(keywords or []), *unrecognized],
     )
 
 
@@ -113,7 +153,8 @@ def rank_clips(
     from .db_connect import connect
 
     criteria = _criteria(
-        characters, time_of_day, int_ext, location, shot_size, keywords
+        characters, time_of_day, int_ext, location, shot_size, keywords,
+        project_id=_project(tool_context),
     )
     profile = RankingProfile.parse(ranking_profile)
     ranked = query_and_rank(
@@ -183,7 +224,9 @@ def summarize_takes(
     """
     from .db_connect import connect
 
-    criteria = _criteria(characters, time_of_day, keywords=keywords)
+    criteria = _criteria(
+        characters, time_of_day, keywords=keywords, project_id=_project(tool_context)
+    )
     profile = RankingProfile.parse(ranking_profile)
     rows = fetch_matching_shots(
         connect(),
@@ -244,11 +287,8 @@ def investigate_scene(
     from .editorial import SearchCriteria, fetch_matching_shots
     from .scene import chronological_coverage, investigate_from_rows
 
-    words = list(keywords or [])
-    criteria = SearchCriteria(
-        characters=characters or [],
-        time_of_day=time_of_day or [],
-        keywords=words,
+    criteria = _criteria(
+        characters, time_of_day, keywords=keywords, project_id=_project(tool_context)
     )
     rows = fetch_matching_shots(
         connect(),
@@ -271,7 +311,7 @@ def investigate_scene(
     project = _project(tool_context)
     for sequence in report.get("sequences") or []:
         _sequence_links(sequence, project)
-    step = _scene_step(report, characters or [], event, words)
+    step = _scene_step(report, characters or [], event, criteria.keywords)
     followup = step.get("pending_followup")
     if followup:
         # `after` skips whatever did not match the filter, so a claim about

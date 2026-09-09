@@ -1,6 +1,11 @@
 google-adk
 google-genai
 mcp<2
-mcp-clickhouse
+# Pinned: mcp-clickhouse>0.4.1 pulls in a newer fastmcp line that splits out
+# fastmcp-slim, which requires mcp>=2.0 - directly conflicting with mcp<2
+# above and failing the Docker build's pip install with no code change on
+# our side. This exact version is proven working locally (fastmcp 2.14.7,
+# no fastmcp-slim in the graph at all).
+mcp-clickhouse==0.4.1
 clickhouse-connect
 python-dotenv
