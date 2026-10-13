@@ -146,8 +146,8 @@ which is what the logger needs to be tested against:
     .venv/Scripts/python.exe clips.py assets/notld_full.mp4 assets/clips 20 45
 
 The same trick runs a second production, `lailamajnu`, whose vocabulary comes
-from an original short screenplay of the public-domain Layla and Majnun legend
-(`scripts/write_laila_screenplay.py`) while its footage is stand-in clips cut
+from an original short screenplay of the public-domain Layla and Majnun legend,
+while its footage is stand-in clips cut
 from a feature. Worth knowing what that does to the logs, because it is
 visible in the rows: the *cast* transfers, because the film is an adaptation
 of the same legend, so `characters` comes back `Laila`, `Qays`, `Children`
@@ -234,11 +234,11 @@ Do **not** use `gcloud auth application-default login` for Drive — Google
 blocks the Cloud SDK app on that sensitive scope ("This app is blocked").
 Service-account JSON keys are also blocked by org policy.
 
-1. [OAuth consent screen](https://console.cloud.google.com/apis/credentials/consent?project=devpost-506321)
+1. [OAuth consent screen](https://console.cloud.google.com/apis/credentials/consent?project=YOUR_PROJECT)
    → **External** → **Testing** (do not publish).
 2. Add scope `https://www.googleapis.com/auth/drive.readonly`.
 3. **Test users** → add the Google account that owns the dailies folder.
-4. [Credentials](https://console.cloud.google.com/apis/credentials?project=devpost-506321)
+4. [Credentials](https://console.cloud.google.com/apis/credentials?project=YOUR_PROJECT)
    → **Create credentials** → **OAuth client ID** → type **Desktop app**
    (not the existing Web client). Download JSON as `client_secret.json`
    in the repo root (gitignored).
@@ -277,16 +277,28 @@ every Gemini and ClickHouse call in the tests goes through a hand-written fake
 client rather than the real SDKs, so the whole pipeline is testable without a
 key or a live database.
 
-## Hackathon deploy
+## Deploying to Cloud Run
 
-See **`docs/HACKATHON_CHECKLIST.md`** for the full submission checklist and
-**`docs/DEPLOY.md`** for Vertex AI + Cloud Run deployment (you have GCP
-credits now). Quick path:
+Vertex AI plus Cloud Run. Put the Vertex settings in `.env`, then:
 
-    # Vertex in .env, then:
     .venv/Scripts/adk.exe deploy cloud_run --project=YOUR_PROJECT --region=us-central1 --service_name=dailies-agent --with_ui dailies_agent
 
-Use a read-only ClickHouse user for the deployed agent; SQL is in `docs/DEPLOY.md`.
+Use a read-only ClickHouse user for the deployed agent. In the ClickHouse SQL
+console:
+
+```sql
+CREATE USER IF NOT EXISTS agent_readonly
+  IDENTIFIED BY 'choose-a-strong-password'
+  SETTINGS readonly = 1,
+           max_execution_time = 30,
+           max_result_rows = 1000,
+           max_rows_to_read = 10000000;
+
+GRANT SELECT ON default.shots TO agent_readonly;
+```
+
+Use `agent_readonly` as `CLICKHOUSE_USER` for the agent. Keep a write-capable
+user only for `ingest_all.py` and `smoke.py` on your own machine.
 
 ## Credits
 
