@@ -18,3 +18,7 @@ deploy/app/assets/
 deploy/app/dailies_agent/
 deploy/app/static/
 deploy/app/*.py
+
+# internal notes stay local
+tasks.md
+docs/
